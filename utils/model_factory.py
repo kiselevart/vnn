@@ -4,10 +4,10 @@ import torchvision.models as models
 
 # Imports from existing codebase
 from network.video import vnn_rgb_of_highQ, vnn_fusion_highQ
-from network.video_higher_order import vnn_rgb_of_highQ as vnn_rgb_ho
-from network.video_higher_order import vnn_rgb_of_complex as vnn_complex_ho
-from network.video_higher_order import vnn_fusion_highQ as vnn_fusion_ho
-from network.video_higher_order import vnn_cubic_simple_toggle as vnn_cubic_toggle
+from network.video_higher_order import backbone_4block as vnn_rgb_ho
+from network.video_higher_order import backbone_7block as vnn_complex_ho
+from network.video_higher_order import fusion_head as vnn_fusion_ho
+from network.video_higher_order import backbone_cubic_toggle as vnn_cubic_toggle
 from network.cifar.vnn_cifar import VNN_CIFAR
 from network.cifar_ortho.res_vnn_ortho import ResVNN_Ortho_CIFAR
 
