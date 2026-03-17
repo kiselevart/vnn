@@ -23,6 +23,10 @@ class FlowDatasetWrapper(Dataset):
         # Assuming original returns (video, label)
         rgb_video, label = self.dataset[index]
 
+        # Explicit non-finite check on RGB input to prevent propagation
+        if not torch.isfinite(rgb_video).all():
+            rgb_video = torch.nan_to_num(rgb_video, nan=0.0, posinf=255.0, neginf=-255.0)
+
         # Compute flow from de-normalized RGB to match original pipeline behavior.
         # VideoDataset.normalize() subtracts [90, 98, 102] per channel (B, G, R).
         # Reconstruct approximate pre-normalized pixel domain before optical flow.
@@ -37,10 +41,12 @@ class FlowDatasetWrapper(Dataset):
 
         # sanitize non-finite values from optical-flow estimation
         if not torch.isfinite(flow_video).all():
-            flow_video = torch.nan_to_num(flow_video, nan=0.0, posinf=1e3, neginf=-1e3)
+            flow_video = torch.nan_to_num(flow_video, nan=0.0, posinf=1.0, neginf=-1.0)
 
-        # optional safety clamp to prevent huge activations in Volterra terms
-        flow_video = flow_video.clamp(min=-50.0, max=50.0).float()
+        # stricter safety clamp to prevent huge activations in Volterra terms.
+        # Volterra interactions multiply inputs, so values like 50.0 are dangerous.
+        # [-5.0, 5.0] is much safer for a normalized flow field.
+        flow_video = flow_video.clamp(min=-5.0, max=5.0).float()
 
         # Return tuple (rgb, flow), label
         # In the training loop, we check if input is a list/tuple
@@ -139,7 +145,7 @@ def get_dataloaders(args):
             augment=False,
         )
 
-        if args.model in ("vnn_fusion", "vnn_fusion_v3", "vnn_fusion_ho"):
+        if args.model in ("vnn_fusion", "vnn_fusion_ho"):
             # Wrap for Flow
             train_ds = FlowDatasetWrapper(train_ds)
             val_ds = FlowDatasetWrapper(val_ds)

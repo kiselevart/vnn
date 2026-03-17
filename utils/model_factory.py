@@ -8,9 +8,7 @@ from network.cifar_ortho.res_vnn_ortho import ResVNN_Ortho_CIFAR
 # Imports from existing codebase
 from network.video import (
     vnn_fusion_highQ,
-    vnn_fusion_highQ_v3,
     vnn_rgb_of_highQ,
-    vnn_rgb_of_highQ_v3,
 )
 from network.video_higher_order import backbone_4block as vnn_rgb_ho
 from network.video_higher_order import backbone_7block as vnn_complex_ho
@@ -99,39 +97,6 @@ def get_model(args, device):
                     return list(vnn_fusion_highQ.get_10x_lr_params(self.model_fuse))
 
             net = VideoVNNFusion(num_classes=args.num_classes)
-
-        elif args.model == "vnn_fusion_v3":
-            # Clean v3 fusion path mirroring original functional implementation
-            class VideoVNNFusionV3(nn.Module):
-                def __init__(self, num_classes):
-                    super().__init__()
-                    self.model_rgb = vnn_rgb_of_highQ_v3.VNN(
-                        num_classes=num_classes, num_ch=3, pretrained=False
-                    )
-                    self.model_of = vnn_rgb_of_highQ_v3.VNN(
-                        num_classes=num_classes, num_ch=2, pretrained=False
-                    )
-                    self.model_fuse = vnn_fusion_highQ_v3.VNN_F(
-                        num_classes=num_classes, num_ch=192, pretrained=False
-                    )
-
-                def forward(self, x):
-                    rgb, flow = x
-                    out_rgb = self.model_rgb(rgb)
-                    out_of = self.model_of(flow)
-                    return self.model_fuse(torch.cat((out_rgb, out_of), 1))
-
-                def get_1x_lr_params(self):
-                    p = []
-                    p += list(vnn_rgb_of_highQ_v3.get_1x_lr_params(self.model_rgb))
-                    p += list(vnn_rgb_of_highQ_v3.get_1x_lr_params(self.model_of))
-                    p += list(vnn_fusion_highQ_v3.get_1x_lr_params(self.model_fuse))
-                    return p
-
-                def get_10x_lr_params(self):
-                    return list(vnn_fusion_highQ_v3.get_10x_lr_params(self.model_fuse))
-
-            net = VideoVNNFusionV3(num_classes=args.num_classes)
 
         elif args.model == "vnn_rgb_ho":
             # Higher-order (cubic) RGB backbone + cubic fusion head

@@ -284,9 +284,8 @@ class VideoDataset(Dataset):
         """Horizontally flip the given image and ground truth randomly with a probability of 0.5."""
 
         if np.random.random() < 0.5:
-            for i, frame in enumerate(buffer):
-                frame = cv2.flip(buffer[i], flipCode=1)
-                buffer[i] = cv2.flip(frame, flipCode=1)
+            for i in range(len(buffer)):
+                buffer[i] = cv2.flip(buffer[i], flipCode=1)
 
         return buffer
 
