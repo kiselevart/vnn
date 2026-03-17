@@ -249,11 +249,13 @@ class Trainer:
         # Handle specific optimizer needs (Video VNNs use Adam with specific groups, CIFAR uses SGD)
         if args.task == "video":
             get_1x = getattr(self.model, "get_1x_lr_params", None)
+            get_10x = getattr(self.model, "get_10x_lr_params", None)
             if callable(get_1x):
                 params = [
                     {"params": get_1x(), "lr": args.lr},
-                    # If model has other params not in 1x, add them here or ensure get_1x covers all
                 ]
+                if callable(get_10x):
+                    params.append({"params": get_10x(), "lr": args.lr * 10})
             else:
                 params = self.model.parameters()
 
