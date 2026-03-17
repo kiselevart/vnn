@@ -19,37 +19,7 @@ from utils.model_factory import get_model
 from utils.data_factory import get_dataloaders
 
 def parse_args():
-    desc = """Unified VNN Training & Benchmarking Script
-==========================================
-This script trains various Volterra Neural Network (VNN) architectures and baselines
-on CIFAR-10 and Video datasets (UCF101, HMDB51).
-
-Supported Models:
-  - vnn_simple: Basic VNN
-  - vnn_ortho:  Orthogonal VNN
-  - resnet18:   Standard ResNet18 baseline
-  - vnn_rgb:    RGB-only VNN for video
-  - vnn_fusion: Two-stream fusion (RGB + Optical Flow) for video"""
-
-    epilog = """Examples:
-  1. Train VNN Ortho on CIFAR-10:
-     python train.py --task cifar --dataset cifar10 --model vnn_ortho --epochs 50 --batch_size 128 --lr 0.01
-
-  2. Train ResNet18 baseline on CIFAR-10:
-     python train.py --task cifar --dataset cifar10 --model resnet18
-
-  3. Train VNN Fusion on UCF101 (Video):
-     python train.py --task video --dataset ucf101 --model vnn_fusion --num_workers 4 --batch_size 16
-
-  4. Train VNN Fusion with 3rd-order cubic terms (higher-order):
-     python train.py --task video --dataset ucf101 --model vnn_fusion_ho --num_workers 4 --batch_size 8
-
-  5. Resume from checkpoint:
-     python train.py --task cifar --dataset cifar10 --model vnn_ortho --resume runs/vnn_ortho_.../checkpoints/last.pth"""
-
     parser = argparse.ArgumentParser(
-        description=desc, 
-        epilog=epilog, 
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     
