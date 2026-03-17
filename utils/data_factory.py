@@ -44,9 +44,9 @@ class FlowDatasetWrapper(Dataset):
             flow_video = torch.nan_to_num(flow_video, nan=0.0, posinf=1.0, neginf=-1.0)
 
         # stricter safety clamp to prevent huge activations in Volterra terms.
-        # Volterra interactions multiply inputs, so values like 50.0 are dangerous.
-        # [-5.0, 5.0] is much safer for a normalized flow field.
-        flow_video = flow_video.clamp(min=-5.0, max=5.0).float()
+        # Volterra interactions multiply inputs, so values like 5.0 are still risky.
+        # [-2.0, 2.0] is much safer for a normalized flow field.
+        flow_video = flow_video.clamp(min=-2.0, max=2.0).float()
 
         # Return tuple (rgb, flow), label
         # In the training loop, we check if input is a list/tuple

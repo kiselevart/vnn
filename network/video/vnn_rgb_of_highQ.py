@@ -212,7 +212,10 @@ class VNN(nn.Module):
                 if m.bias is not None:
                     m.bias.data.zero_()
             elif isinstance(m, nn.BatchNorm3d):
-                m.weight.data.fill_(1)
+                if 'bn2' in name:
+                    m.weight.data.fill_(0.1) # Scale down the quadratic branch impact
+                else:
+                    m.weight.data.fill_(1)
                 m.bias.data.zero_()
 
 def get_1x_lr_params(model):
