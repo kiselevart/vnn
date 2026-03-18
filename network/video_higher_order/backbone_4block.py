@@ -52,7 +52,7 @@ class VNN(nn.Module):
             use_cubic=True, cubic_mode='symmetric',
         )
 
-    def forward(self, x, activation=False):
+    def forward(self, x):
         x = self.block1(x)
         x = self.block2(x)
         x = self.block3(x)

@@ -37,7 +37,7 @@ class VNN_F(nn.Module):
         )
         self.classifier = ClassifierHead(12544, num_classes)
 
-    def forward(self, x, activation=False):
+    def forward(self, x):
         x = self.block1(x)
         return self.classifier(x)
 

@@ -2,13 +2,13 @@
 3D VNN Backbone (7-block deep) with 2nd + 3rd order Volterra interactions.
 
 Architecture:
-    Block 1: Multi-kernel (3×3×3 + 3×3×3 + 1×1×1) → Quadratic → Pool
+    Block 1: Multi-kernel (5×5×5 + 3×3×3 + 1×1×1) → Quadratic → Pool
     Block 2: Quadratic → Pool
     Block 3: Quadratic (no pool)
     Block 4: Quadratic (no pool)
-    Block 6: Quadratic + Cubic → Pool
-    Block 7: Quadratic + Cubic (no pool)
     Block 5: Quadratic + Cubic → Pool
+    Block 6: Quadratic + Cubic (no pool)
+    Block 7: Quadratic + Cubic → Pool
 
 All blocks have residual shortcuts and gated quadratic branches.
 With ``with_head=True``, includes a classifier (for standalone use).
@@ -40,7 +40,7 @@ class VNN(nn.Module):
         # Block 1: Multi-kernel, quadratic + shortcut
         self.block1 = MultiKernelBlock3D(
             num_ch, ch_per_kernel=8,
-            kernels=[(3, 3, 3), (3, 3, 3), (1, 1, 1)],
+            kernels=[(5, 5, 5), (3, 3, 3), (1, 1, 1)],
             Q=4, stride=2, use_shortcut=True, gate_quadratic=True,
         )
 
@@ -58,16 +58,16 @@ class VNN(nn.Module):
             use_shortcut=True, gate_quadratic=True,
         )
 
-        # Blocks 6-7-5: Quadratic + Cubic + shortcut
-        self.block6 = VolterraBlock3D(
+        # Blocks 5-7: Quadratic + Cubic + shortcut
+        self.block5 = VolterraBlock3D(
             96, 128, Q=4, Qc=2, stride=2,
             use_cubic=True, use_shortcut=True, gate_quadratic=True,
         )
-        self.block7 = VolterraBlock3D(
+        self.block6 = VolterraBlock3D(
             128, 256, Q=4, Qc=2,
             use_cubic=True, use_shortcut=True, gate_quadratic=True,
         )
-        self.block5 = VolterraBlock3D(
+        self.block7 = VolterraBlock3D(
             256, 256, Q=2, Qc=2, stride=2,
             use_cubic=True, use_shortcut=True, gate_quadratic=True,
         )
@@ -75,14 +75,14 @@ class VNN(nn.Module):
         if with_head:
             self.classifier = ClassifierHead(12544, num_classes)
 
-    def forward(self, x, activation=False):
+    def forward(self, x):
         x = self.block1(x)
         x = self.block2(x)
         x = self.block3(x)
         x = self.block4(x)
+        x = self.block5(x)
         x = self.block6(x)
         x = self.block7(x)
-        x = self.block5(x)
         if self.with_head:
             x = self.classifier(x)
         return x
