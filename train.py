@@ -65,9 +65,12 @@ class Trainer:
         self.amp_enabled = (self.device.type == "cuda")
         self.scaler = GradScaler(device="cuda") if self.amp_enabled else None
         
-        # Numerical Stability Tracking
+        # Numerical Stability & Parameter Tracking
         self.skipped_stats = {"total": 0, "input": 0, "output": 0, "loss": 0}
         self.finite_debug_prints = 0
+        self.total_params = sum(p.numel() for p in self.model.parameters())
+        self.wandb.config.update({"total_params": self.total_params})
+        print(f"==> Total Parameters: {self.total_params:,}")
 
         # Optional Resume
         if args.resume and os.path.isfile(args.resume):
@@ -106,7 +109,6 @@ class Trainer:
             "config": vars(args)
         }
         
-        # init uses WANDB_PROJECT and WANDB_ENTITY from env by default
         self.wandb.init(**init_kwargs)
         atexit.register(lambda: self.wandb.finish() if self.wandb else None)
 
@@ -125,6 +127,16 @@ class Trainer:
             self.optimizer = optim.SGD(self.model.parameters(), lr=args.lr, momentum=args.momentum, 
                                      weight_decay=args.weight_decay, nesterov=True)
             self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=args.epochs)
+
+    def _get_weight_stats(self):
+        """Calculates global mean and max absolute weight across the model."""
+        w_sum, w_count, w_max = 0.0, 0, 0.0
+        with torch.no_grad():
+            for p in self.model.parameters():
+                w_sum += p.data.sum().item()
+                w_count += p.data.numel()
+                w_max = max(w_max, p.data.abs().max().item())
+        return w_sum / w_count if w_count > 0 else 0.0, w_max
 
     def _check_finite(self, tensor, name, epoch, batch_idx, mode):
         tensors = tensor if isinstance(tensor, (list, tuple)) else [tensor]
@@ -184,22 +196,35 @@ class Trainer:
             stats["total"] += targets.size(0)
             stats["correct"] += outputs.max(1)[1].eq(targets).sum().item()
             
-            pbar.set_postfix({"L": f"{stats['loss']/stats['batches']:.3f}", "A": f"{100.*stats['correct']/stats['total']:.1f}%", "S": self.skipped_stats["total"]})
+            # Update terminal with current max weight every batch for monitoring
+            _, w_max = self._get_weight_stats()
+            pbar.set_postfix({
+                "L": f"{stats['loss']/stats['batches']:.3f}", 
+                "A": f"{100.*stats['correct']/stats['total']:.1f}%", 
+                "W": f"{w_max:.2e}"
+            })
 
         res = {k: (v/stats["batches"] if k in ["loss", "grad_norm"] else v) for k, v in stats.items()}
         res["acc"] = 100. * stats["correct"] / stats["total"] if stats["total"] > 0 else 0
         return res
 
     def run(self):
+        start_time_total = time.time()
         for epoch in range(self.start_epoch, self.args.epochs):
             t_stats, v_stats = self._run_epoch(epoch, "train"), self._run_epoch(epoch, "val")
             self.scheduler.step()
             
-            print(f"Ep {epoch+1} | T_Loss: {t_stats['loss']:.3f} T_Acc: {t_stats['acc']:.1f}% | V_Loss: {v_stats['loss']:.3f} V_Acc: {v_stats['acc']:.1f}%")
+            w_mean, w_max = self._get_weight_stats()
+            print(f"Ep {epoch+1} | T_Loss: {t_stats['loss']:.3f} T_Acc: {t_stats['acc']:.1f}% | V_Loss: {v_stats['loss']:.3f} V_Acc: {v_stats['acc']:.1f}% | W_Max: {w_max:.2e}")
             
             log_data = {f"train/{k}": v for k, v in t_stats.items()}
             log_data.update({f"val/{k}": v for k, v in v_stats.items()})
-            log_data.update({"epoch": epoch+1, "lr": self.optimizer.param_groups[0]["lr"]})
+            log_data.update({
+                "epoch": epoch+1, 
+                "lr": self.optimizer.param_groups[0]["lr"],
+                "weights/mean": w_mean,
+                "weights/max": w_max
+            })
             if self.scaler: log_data["amp/scale"] = self.scaler.get_scale()
             self.wandb.log(log_data)
 
@@ -207,6 +232,10 @@ class Trainer:
                 self.best_acc = v_stats["acc"]
                 torch.save({"epoch": epoch+1, "state_dict": self.model.state_dict(), "optimizer": self.optimizer.state_dict(), "best_acc": self.best_acc}, 
                            os.path.join(self.out_dir, "checkpoints", "best_model.pth"))
+
+        total_runtime = time.time() - start_time_total
+        self.wandb.summary["total_runtime_sec"] = total_runtime
+        print(f"==> Training Complete. Total Runtime: {total_runtime/60:.2f} mins")
 
 if __name__ == "__main__":
     Trainer(parse_args()).run()
