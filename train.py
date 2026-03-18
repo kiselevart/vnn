@@ -36,6 +36,7 @@ def parse_args():
     parser.add_argument("--device", type=str, default="auto", choices=["auto", "cuda", "mps", "cpu"])
     parser.add_argument("--resume", type=str, default=None)
     parser.add_argument("--run_name", type=str, default=None)
+    parser.add_argument("--test_only", action="store_true", help="Only run evaluation on the test set")
     
     args = parser.parse_args()
     
@@ -77,7 +78,7 @@ class Trainer:
             print(f"==> Resuming from {args.resume}")
             ckpt = torch.load(args.resume, map_location=self.device)
             self.start_epoch = ckpt["epoch"]
-            self.best_acc = ckpt["best_acc"]
+            self.best_acc = ckpt.get("best_acc", 0.0)
             self.model.load_state_dict(ckpt["state_dict"])
             self.optimizer.load_state_dict(ckpt["optimizer"])
 
@@ -154,7 +155,7 @@ class Trainer:
     def _run_epoch(self, epoch, mode="train"):
         is_train = (mode == "train")
         self.model.train() if is_train else self.model.eval()
-        loader = self.loaders[mode if is_train else "val"]
+        loader = self.loaders[mode if is_train else "val" if mode == "val" else "test"]
         
         stats = {"loss": 0.0, "correct": 0, "total": 0, "batches": 0, "grad_norm": 0.0}
         self.finite_debug_prints = 0
@@ -209,6 +210,12 @@ class Trainer:
         return res
 
     def run(self):
+        if self.args.test_only:
+            print(f"==> Running Test Evaluation...")
+            test_stats = self._run_epoch(0, "test")
+            print(f"Test Result | Loss: {test_stats['loss']:.3f} | Acc: {test_stats['acc']:.2f}%")
+            return
+
         start_time_total = time.time()
         for epoch in range(self.start_epoch, self.args.epochs):
             t_stats, v_stats = self._run_epoch(epoch, "train"), self._run_epoch(epoch, "val")

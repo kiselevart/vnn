@@ -33,6 +33,11 @@ class VideoDataset(Dataset):
         self.resize_width = 171
         self.crop_size = 112
 
+        # Per-channel BGR mean pixel values (C3D/Sports-1M convention).
+        # Stored as an attribute so consumers (e.g. FlowDatasetWrapper) can
+        # denormalize without hardcoding these values themselves.
+        self.mean = np.array([90.0, 98.0, 102.0], dtype=np.float32)  # [B, G, R]
+
         # Detect whether root_dir has pre-split structure (train/val/test subdirs)
         # or flat class folders that need splitting
         self.pre_split = all(
@@ -292,7 +297,7 @@ class VideoDataset(Dataset):
 
     def normalize(self, buffer):
         for i, frame in enumerate(buffer):
-            frame -= np.array([[[90.0, 98.0, 102.0]]])
+            frame -= self.mean
             buffer[i] = frame
 
         return buffer

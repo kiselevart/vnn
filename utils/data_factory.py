@@ -27,14 +27,11 @@ class FlowDatasetWrapper(Dataset):
         if not torch.isfinite(rgb_video).all():
             rgb_video = torch.nan_to_num(rgb_video, nan=0.0, posinf=255.0, neginf=-255.0)
 
-        # Compute flow from de-normalized RGB to match original pipeline behavior.
-        # VideoDataset.normalize() subtracts [90, 98, 102] per channel (B, G, R).
-        # Reconstruct approximate pre-normalized pixel domain before optical flow.
-        rgb_for_flow = rgb_video.clone()
-        rgb_for_flow[0] = rgb_for_flow[0] + 90.0
-        rgb_for_flow[1] = rgb_for_flow[1] + 98.0
-        rgb_for_flow[2] = rgb_for_flow[2] + 102.0
-        rgb_for_flow = rgb_for_flow.clamp(min=0.0, max=255.0)
+        # Reconstruct pixel-domain frames for optical flow by reversing the
+        # dataset's own normalization. Using self.dataset.mean ensures this
+        # stays in sync if the normalization parameters ever change.
+        mean = torch.tensor(self.dataset.mean, dtype=torch.float32).view(3, 1, 1, 1)
+        rgb_for_flow = (rgb_video.clone() + mean).clamp(0.0, 255.0)
 
         # Compute Flow here
         flow_video = calculate_video_flow(rgb_for_flow)
