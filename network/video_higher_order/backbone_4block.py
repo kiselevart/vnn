@@ -36,18 +36,20 @@ class VNN(nn.Module):
         )
 
         # Block 2: Quadratic only
-        self.block2 = VolterraBlock3D(24, 32, Q=4, stride=2)
+        self.block2 = VolterraBlock3D(24, 32, Q=4, stride=2, use_shortcut=True)
 
         # Block 3: Quadratic + Symmetric Cubic (no pool)
         self.block3 = VolterraBlock3D(
             32, 64, Q=4, Qc=2,
             use_cubic=True, cubic_mode='symmetric',
+            use_shortcut=True,
         )
 
         # Block 4: Quadratic + Symmetric Cubic
         self.block4 = VolterraBlock3D(
             64, 96, Q=4, Qc=2, stride=2,
             use_cubic=True, cubic_mode='symmetric',
+            use_shortcut=True,
         )
 
     def forward(self, x):

@@ -64,14 +64,14 @@ class VolterraBlock3D(nn.Module):
         self.conv_quad = nn.Conv3d(in_ch, 2 * Q * out_ch, ks, padding=pad)
         self.bn_quad = nn.BatchNorm3d(out_ch)
         if gate_quadratic:
-            self.quad_gate = nn.Parameter(torch.ones(1) * 1e-4)
+            self.quad_gate = nn.Parameter(torch.ones(out_ch) * 1e-4)
 
         # --- Cubic path (optional) ---
         if use_cubic:
             cubic_mult = 3 if cubic_mode == 'general' else 2
             self.conv_cubic = nn.Conv3d(in_ch, cubic_mult * Qc * out_ch, ks, padding=pad)
             self.bn_cubic = nn.BatchNorm3d(out_ch)
-            self.cubic_gate = nn.Parameter(torch.ones(1) * 1e-4)
+            self.cubic_gate = nn.Parameter(torch.ones(out_ch) * 1e-4)
 
         # --- Shortcut (optional) ---
         if use_shortcut:
@@ -92,14 +92,14 @@ class VolterraBlock3D(nn.Module):
         # Quadratic
         q = self.bn_quad(volterra_quadratic(self.conv_quad(x), self.Q, self.out_ch))
         if self.gate_quadratic:
-            q = self.quad_gate * q
+            q = self.quad_gate.view(1, -1, 1, 1, 1) * q
         out = out + q
 
         # Cubic
         if self.use_cubic:
             fn = volterra_cubic_general if self.cubic_mode == 'general' else volterra_cubic_symmetric
             c = self.bn_cubic(fn(self.conv_cubic(x), self.Qc, self.out_ch))
-            out = out + self.cubic_gate * c
+            out = out + self.cubic_gate.view(1, -1, 1, 1, 1) * c
 
         # Shortcut
         if self.use_shortcut:
@@ -154,7 +154,7 @@ class MultiKernelBlock3D(nn.Module):
         self.bn_quad = nn.BatchNorm3d(self.out_ch)
 
         if gate_quadratic:
-            self.quad_gate = nn.Parameter(torch.ones(1) * 1e-4)
+            self.quad_gate = nn.Parameter(torch.ones(self.out_ch) * 1e-4)
 
         if use_shortcut:
             self.shortcut = nn.Sequential(
@@ -176,7 +176,7 @@ class MultiKernelBlock3D(nn.Module):
         quad = self.bn_quad(torch.cat(quads, dim=1))
 
         if self.gate_quadratic:
-            quad = self.quad_gate * quad
+            quad = self.quad_gate.view(1, -1, 1, 1, 1) * quad
 
         out = lin + quad
 
