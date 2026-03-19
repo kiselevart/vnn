@@ -119,14 +119,15 @@ def get_model(args, device):
                     self.model_rgb = vnn_rgb_ho.VNN(num_ch=3)
                     self.model_of = vnn_rgb_ho.VNN(num_ch=2)
                     self.model_fuse = vnn_fusion_ho.VNN_F(
-                        num_classes=num_classes, num_ch=192
+                        num_classes=num_classes, num_ch=288
                     )
 
                 def forward(self, x):
                     rgb, flow = x
                     out_rgb = self.model_rgb(rgb)
                     out_of = self.model_of(flow)
-                    return self.model_fuse(torch.cat((out_rgb, out_of), 1))
+                    cross = out_rgb * out_of
+                    return self.model_fuse(torch.cat((out_rgb, out_of, cross), 1))
 
             net = VideoVNNFusion_HO(num_classes=args.num_classes)
 
