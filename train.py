@@ -23,9 +23,9 @@ def parse_args():
     parser.add_argument("--model", type=str, required=True)
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--lr", type=float, default=0.01)
+    parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--momentum", type=float, default=0.9)
-    parser.add_argument("--weight_decay", type=float, default=5e-4)
+    parser.add_argument("--weight_decay", type=float, default=1e-4)
     parser.add_argument("--label_smoothing", type=float, default=0.0)
     parser.add_argument("--Q", type=int, default=2)
     parser.add_argument("--disable_cubic", action="store_true")
@@ -33,12 +33,10 @@ def parse_args():
                         choices=["symmetric", "general"])
 
     # Logging & System
-    parser.add_argument("--wandb_name", type=str, default=None)
-    parser.add_argument("--wandb_mode", type=str, default="online")
-    parser.add_argument("--num_workers", type=int, default=0)
+    parser.add_argument("--num_workers", type=int, default=16)
     parser.add_argument("--device", type=str, default="auto", choices=["auto", "cuda", "mps", "cpu"])
     parser.add_argument("--resume", type=str, default=None)
-    parser.add_argument("--run_name", type=str, default=None)
+    parser.add_argument("--run_name", type=str, required=True)
     parser.add_argument("--test_only", action="store_true", help="Only run evaluation on the test set")
     
     args = parser.parse_args()
@@ -103,13 +101,13 @@ class Trainer:
         import wandb
         self.wandb = wandb
         
-        timestamp = datetime.now().strftime('%b%d_%H-%M-%S')
-        self.run_name = args.run_name or f"{args.model}_{args.dataset}_{timestamp}"
-        self.out_dir = os.path.join("runs", self.run_name)
+        timestamp = datetime.now().strftime('%m%d-%H%M')
+        self.run_name = args.run_name
+        self.out_dir = os.path.join("runs", f"{self.run_name}_{timestamp}")
         os.makedirs(os.path.join(self.out_dir, "checkpoints"), exist_ok=True)
-        
+
         init_kwargs = {
-            "name": args.wandb_name or self.run_name, 
+            "name": self.run_name,
             "mode": args.wandb_mode,
             "dir": self.out_dir,
             "config": vars(args)
