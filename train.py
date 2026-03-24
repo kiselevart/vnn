@@ -29,6 +29,8 @@ def parse_args():
     parser.add_argument("--label_smoothing", type=float, default=0.0)
     parser.add_argument("--Q", type=int, default=2)
     parser.add_argument("--disable_cubic", action="store_true")
+    parser.add_argument("--cubic_mode", type=str, default="symmetric",
+                        choices=["symmetric", "general"])
 
     # Logging & System
     parser.add_argument("--wandb_name", type=str, default=None)

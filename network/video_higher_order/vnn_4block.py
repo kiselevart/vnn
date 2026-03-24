@@ -26,16 +26,17 @@ class Backbone4Block(nn.Module):
     Architecture:
         Block 1: Multi-kernel (5×5×5 + 3×3×3 + 1×1×1) → Quadratic → Pool
         Block 2: Single kernel → Quadratic → Pool
-        Block 3: Single kernel → Quadratic + Symmetric Cubic (no pool)
-        Block 4: Single kernel → Quadratic + Symmetric Cubic → Pool
+        Block 3: Single kernel → Quadratic + Cubic (no pool)
+        Block 4: Single kernel → Quadratic + Cubic → Pool
 
     Outputs feature maps [B, 96, T/8, H/8, W/8].
 
     Args:
         num_ch: Input channels (3 for RGB, 2 for optical flow).
+        cubic_mode: 'symmetric' or 'general' cubic factorization.
     """
 
-    def __init__(self, num_ch=3):
+    def __init__(self, num_ch=3, cubic_mode='symmetric'):
         super().__init__()
 
         # Block 1: Multi-kernel, quadratic only
@@ -48,17 +49,17 @@ class Backbone4Block(nn.Module):
         # Block 2: Quadratic only
         self.block2 = VolterraBlock3D(24, 32, Q=4, stride=2, use_shortcut=True)
 
-        # Block 3: Quadratic + Symmetric Cubic (no pool)
+        # Block 3: Quadratic + Cubic (no pool)
         self.block3 = VolterraBlock3D(
             32, 64, Q=4, Qc=2,
-            use_cubic=True, cubic_mode='symmetric',
+            use_cubic=True, cubic_mode=cubic_mode,
             use_shortcut=True,
         )
 
-        # Block 4: Quadratic + Symmetric Cubic
+        # Block 4: Quadratic + Cubic
         self.block4 = VolterraBlock3D(
             64, 96, Q=4, Qc=2, stride=2,
-            use_cubic=True, cubic_mode='symmetric',
+            use_cubic=True, cubic_mode=cubic_mode,
             use_shortcut=True,
         )
 
@@ -110,7 +111,7 @@ class SimpleBackbone(nn.Module):
 # ---------------------------------------------------------------------------
 
 class FusionHead(nn.Module):
-    """Fusion classification head with Quadratic + Symmetric Cubic.
+    """Fusion classification head with Quadratic + Cubic.
 
     Architecture::
 
@@ -119,14 +120,15 @@ class FusionHead(nn.Module):
     Args:
         num_classes: Number of output classes.
         num_ch: Input channels (96 for single-stream, 288 for two-stream fusion).
+        cubic_mode: 'symmetric' or 'general' cubic factorization.
     """
 
-    def __init__(self, num_classes, num_ch=3):
+    def __init__(self, num_classes, num_ch=3, cubic_mode='symmetric'):
         super().__init__()
 
         self.block1 = VolterraBlock3D(
             num_ch, 256, Q=2, Qc=2, stride=2,
-            use_cubic=True, cubic_mode='symmetric',
+            use_cubic=True, cubic_mode=cubic_mode,
             use_shortcut=True, gate_quadratic=True,
         )
         self.classifier = ClassifierHead(12544, num_classes)
@@ -158,12 +160,13 @@ class VNNRgbHO(nn.Module):
 
     Args:
         num_classes: Number of output classes.
+        cubic_mode: 'symmetric' or 'general' cubic factorization.
     """
 
-    def __init__(self, num_classes):
+    def __init__(self, num_classes, cubic_mode='symmetric'):
         super().__init__()
-        self.backbone = Backbone4Block(num_ch=3)
-        self.head = FusionHead(num_classes=num_classes, num_ch=96)
+        self.backbone = Backbone4Block(num_ch=3, cubic_mode=cubic_mode)
+        self.head = FusionHead(num_classes=num_classes, num_ch=96, cubic_mode=cubic_mode)
 
     def forward(self, x):
         return self.head(self.backbone(x))
@@ -190,13 +193,14 @@ class VNNFusionHO(nn.Module):
 
     Args:
         num_classes: Number of output classes.
+        cubic_mode: 'symmetric' or 'general' cubic factorization.
     """
 
-    def __init__(self, num_classes):
+    def __init__(self, num_classes, cubic_mode='symmetric'):
         super().__init__()
-        self.model_rgb = Backbone4Block(num_ch=3)
-        self.model_of = Backbone4Block(num_ch=2)
-        self.model_fuse = FusionHead(num_classes=num_classes, num_ch=288)
+        self.model_rgb = Backbone4Block(num_ch=3, cubic_mode=cubic_mode)
+        self.model_of = Backbone4Block(num_ch=2, cubic_mode=cubic_mode)
+        self.model_fuse = FusionHead(num_classes=num_classes, num_ch=288, cubic_mode=cubic_mode)
 
     def forward(self, x):
         rgb, flow = x

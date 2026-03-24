@@ -94,10 +94,10 @@ def get_model(args, device):
             net = VideoVNNFusion(num_classes=args.num_classes)
 
         elif args.model == "vnn_rgb_ho":
-            net = VNNRgbHO(num_classes=args.num_classes)
+            net = VNNRgbHO(num_classes=args.num_classes, cubic_mode=args.cubic_mode)
 
         elif args.model == "vnn_fusion_ho":
-            net = VNNFusionHO(num_classes=args.num_classes)
+            net = VNNFusionHO(num_classes=args.num_classes, cubic_mode=args.cubic_mode)
 
         elif args.model == "vnn_complex_ho":
             net = VNNDeep(num_classes=args.num_classes)
