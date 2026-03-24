@@ -13,16 +13,15 @@ Architecture:
 All blocks have residual shortcuts and gated quadratic branches.
 With ``with_head=True``, includes a classifier (for standalone use).
 
-Previously: vnn_rgb_of_complex.py
+Previously: backbone_7block.py
 """
 
-import torch
 import torch.nn as nn
 
-from .blocks import MultiKernelBlock3D, VolterraBlock3D, ClassifierHead
+from .volterra_blocks import MultiKernelBlock3D, VolterraBlock3D, ClassifierHead
 
 
-class VNN(nn.Module):
+class VNNDeep(nn.Module):
     """7-block deep 3D VNN backbone with residual shortcuts.
 
     Args:
@@ -85,14 +84,3 @@ class VNN(nn.Module):
         if self.with_head:
             x = self.classifier(x)
         return x
-
-
-if __name__ == "__main__":
-    inputs = torch.rand(1, 3, 16, 112, 112)
-    net = VNN(num_classes=101)
-    outputs = net(inputs)
-    print(f"Input: {inputs.shape}, Output: {outputs.shape}")
-
-    total = sum(p.numel() for p in net.parameters())
-    trainable = sum(p.numel() for p in net.parameters() if p.requires_grad)
-    print(f"Total params: {total:,}, Trainable: {trainable:,}")
