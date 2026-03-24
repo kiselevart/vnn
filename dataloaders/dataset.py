@@ -417,8 +417,8 @@ class VideoDataset(Dataset):
         time_index = np.random.randint(max_time + 1) if max_time > 0 else 0
 
         # Randomly select start indices in order to crop the video
-        height_index = np.random.randint(buffer.shape[1] - crop_size)
-        width_index = np.random.randint(buffer.shape[2] - crop_size)
+        height_index = np.random.randint(max(1, buffer.shape[1] - crop_size))
+        width_index = np.random.randint(max(1, buffer.shape[2] - crop_size))
 
         # Crop and jitter the video using indexing. The spatial crop is performed on
         # the entire array, so each frame is cropped in the same location. The temporal

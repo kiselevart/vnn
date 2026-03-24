@@ -82,6 +82,8 @@ class Trainer:
             self.best_acc = ckpt.get("best_acc", 0.0)
             self.model.load_state_dict(ckpt["state_dict"])
             self.optimizer.load_state_dict(ckpt["optimizer"])
+            if "scheduler" in ckpt:
+                self.scheduler.load_state_dict(ckpt["scheduler"])
 
     def _setup_device(self, device_pref):
         if device_pref == "auto":
@@ -198,12 +200,9 @@ class Trainer:
             stats["total"] += targets.size(0)
             stats["correct"] += outputs.max(1)[1].eq(targets).sum().item()
             
-            # Update terminal with current max weight every batch for monitoring
-            _, w_max = self._get_weight_stats()
             pbar.set_postfix({
-                "L": f"{stats['loss']/stats['batches']:.3f}", 
-                "A": f"{100.*stats['correct']/stats['total']:.1f}%", 
-                "W": f"{w_max:.2e}"
+                "L": f"{stats['loss']/stats['batches']:.3f}",
+                "A": f"{100.*stats['correct']/stats['total']:.1f}%",
             })
 
         res = {k: (v/stats["batches"] if k in ["loss", "grad_norm"] else v) for k, v in stats.items()}
@@ -238,7 +237,7 @@ class Trainer:
 
             if v_stats["acc"] > self.best_acc:
                 self.best_acc = v_stats["acc"]
-                torch.save({"epoch": epoch+1, "state_dict": self.model.state_dict(), "optimizer": self.optimizer.state_dict(), "best_acc": self.best_acc}, 
+                torch.save({"epoch": epoch+1, "state_dict": self.model.state_dict(), "optimizer": self.optimizer.state_dict(), "scheduler": self.scheduler.state_dict(), "best_acc": self.best_acc},
                            os.path.join(self.out_dir, "checkpoints", "best_model.pth"))
 
         total_runtime = time.time() - start_time_total
