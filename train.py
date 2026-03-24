@@ -244,5 +244,10 @@ class Trainer:
         self.wandb.summary["total_runtime_sec"] = total_runtime
         print(f"==> Training Complete. Total Runtime: {total_runtime/60:.2f} mins")
 
+        print(f"==> Running Final Test Evaluation...")
+        test_stats = self._run_epoch(self.args.epochs - 1, "test")
+        print(f"Test Result | Loss: {test_stats['loss']:.3f} | Acc: {test_stats['acc']:.2f}%")
+        self.wandb.summary.update({f"test/{k}": v for k, v in test_stats.items()})
+
 if __name__ == "__main__":
     Trainer(parse_args()).run()
