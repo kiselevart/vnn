@@ -214,6 +214,7 @@ class Trainer:
             print(f"==> Running Test Evaluation...")
             test_stats = self._run_epoch(0, "test")
             print(f"Test Result | Loss: {test_stats['loss']:.3f} | Acc: {test_stats['acc']:.2f}%")
+            self.wandb.finish()
             return
 
         start_time_total = time.time()
@@ -248,6 +249,7 @@ class Trainer:
         test_stats = self._run_epoch(self.args.epochs - 1, "test")
         print(f"Test Result | Loss: {test_stats['loss']:.3f} | Acc: {test_stats['acc']:.2f}%")
         self.wandb.summary.update({f"test/{k}": v for k, v in test_stats.items()})
+        self.wandb.finish()
 
 if __name__ == "__main__":
     Trainer(parse_args()).run()
