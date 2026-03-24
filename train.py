@@ -108,7 +108,6 @@ class Trainer:
 
         init_kwargs = {
             "name": self.run_name,
-            "mode": args.wandb_mode,
             "dir": self.out_dir,
             "config": vars(args)
         }
