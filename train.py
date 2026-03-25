@@ -131,6 +131,20 @@ class Trainer:
                                      weight_decay=args.weight_decay, nesterov=True)
             self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=args.epochs)
 
+    def _get_gate_stats(self):
+        stats = {}
+        idx = 0
+        for module in self.model.modules():
+            has_quad = hasattr(module, 'quad_gate')
+            has_cubic = hasattr(module, 'cubic_gate')
+            if has_quad:
+                stats[f"gates/b{idx}/quad"] = module.quad_gate.abs().mean().item()
+            if has_cubic:
+                stats[f"gates/b{idx}/cubic"] = module.cubic_gate.abs().mean().item()
+            if has_quad or has_cubic:
+                idx += 1
+        return stats
+
     def _get_weight_stats(self):
         """Calculates global mean and max absolute weight across the model."""
         w_sum, w_count, w_max = 0.0, 0, 0.0
@@ -204,8 +218,9 @@ class Trainer:
                 "A": f"{100.*stats['correct']/stats['total']:.1f}%",
             })
 
-        res = {k: (v/stats["batches"] if k in ["loss", "grad_norm"] else v) for k, v in stats.items()}
-        res["acc"] = 100. * stats["correct"] / stats["total"] if stats["total"] > 0 else 0
+        res = {"loss": stats["loss"] / stats["batches"], "acc": 100. * stats["correct"] / stats["total"] if stats["total"] > 0 else 0}
+        if mode == "train":
+            res["grad_norm"] = stats["grad_norm"] / stats["batches"]
         return res
 
     def run(self):
@@ -233,6 +248,7 @@ class Trainer:
                 "weights/max": w_max
             })
             if self.scaler: log_data["amp/scale"] = self.scaler.get_scale()
+            log_data.update(self._get_gate_stats())
             self.wandb.log(log_data)
 
             if v_stats["acc"] > self.best_acc:
