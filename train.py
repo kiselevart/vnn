@@ -240,6 +240,14 @@ class Trainer:
                 torch.save({"epoch": epoch+1, "state_dict": self.model.state_dict(), "optimizer": self.optimizer.state_dict(), "scheduler": self.scheduler.state_dict(), "best_acc": self.best_acc},
                            os.path.join(self.out_dir, "checkpoints", "best_model.pth"))
 
+            if epoch + 1 == self.args.epochs:
+                torch.save(
+                    {"epoch": epoch+1, "state_dict": self.model.state_dict(),
+                     "optimizer": self.optimizer.state_dict(), "scheduler": self.scheduler.state_dict(),
+                     "best_acc": self.best_acc},
+                    os.path.join(self.out_dir, "checkpoints", "last_model.pth"),
+                )
+
         total_runtime = time.time() - start_time_total
         self.wandb.summary["total_runtime_sec"] = total_runtime
         print(f"==> Training Complete. Total Runtime: {total_runtime/60:.2f} mins")
