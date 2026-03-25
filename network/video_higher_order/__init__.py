@@ -7,6 +7,7 @@ Volterra interactions for video classification.
 
 from .vnn_4block import VNNRgbHO, VNNFusionHO, Backbone4Block, FusionHead
 from .vnn_7block import VNNDeep
+from .cnn_baseline import CNNBaseline3D
 from .volterra_blocks import (
     VolterraBlock3D, MultiKernelBlock3D, ClassifierHead,
     volterra_quadratic, volterra_cubic_symmetric, volterra_cubic_general, init_vnn_weights,
@@ -14,7 +15,7 @@ from .volterra_blocks import (
 
 __all__ = [
     # End-to-end models
-    "VNNRgbHO", "VNNFusionHO", "VNNDeep",
+    "VNNRgbHO", "VNNFusionHO", "VNNDeep", "CNNBaseline3D",
     # Backbones and heads
     "Backbone4Block", "FusionHead",
     # Building blocks

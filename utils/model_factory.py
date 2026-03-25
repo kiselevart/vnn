@@ -12,7 +12,7 @@ from network.video import (
 )
 
 # Higher-order video models
-from network.video_higher_order import VNNRgbHO, VNNFusionHO, VNNDeep
+from network.video_higher_order import VNNRgbHO, VNNFusionHO, VNNDeep, CNNBaseline3D
 
 
 def get_model(args, device):
@@ -115,6 +115,9 @@ def get_model(args, device):
 
         elif args.model == "vnn_complex_ho":
             net = VNNDeep(num_classes=args.num_classes)
+
+        elif args.model == "cnn_baseline":
+            net = CNNBaseline3D(num_classes=args.num_classes)  # ~25.3M
 
         else:
             raise ValueError(f"Unknown Video model: {args.model}")
