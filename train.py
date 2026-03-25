@@ -23,10 +23,10 @@ def parse_args():
     parser.add_argument("--model", type=str, required=True)
     parser.add_argument("--epochs", type=int, default=150)
     parser.add_argument("--batch_size", type=int, default=64)
-    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--momentum", type=float, default=0.9)
-    parser.add_argument("--weight_decay", type=float, default=1e-4)
-    parser.add_argument("--label_smoothing", type=float, default=0.0)
+    parser.add_argument("--weight_decay", type=float, default=0.01)
+    parser.add_argument("--label_smoothing", type=float, default=0.05)
     parser.add_argument("--Q", type=int, default=2)
     parser.add_argument("--disable_cubic", action="store_true")
     parser.add_argument("--cubic_mode", type=str, default="symmetric",
@@ -124,8 +124,8 @@ class Trainer:
             if callable(get_10x):
                 params.append({"params": get_10x(), "lr": args.lr * 10})
                 
-            self.optimizer = optim.Adam(params, lr=args.lr, weight_decay=args.weight_decay)
-            self.scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer, T_0=30, T_mult=2, eta_min=1e-6)
+            self.optimizer = optim.AdamW(params, lr=args.lr, weight_decay=args.weight_decay)
+            self.scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer, T_0=50, T_mult=2, eta_min=1e-6)
         else:
             self.optimizer = optim.SGD(self.model.parameters(), lr=args.lr, momentum=args.momentum, 
                                      weight_decay=args.weight_decay, nesterov=True)
