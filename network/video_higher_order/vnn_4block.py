@@ -47,16 +47,20 @@ class Backbone4Block(nn.Module):
         # Block 2: Quadratic only
         self.block2 = VolterraBlock3D(24, 32, Q=4, stride=2, use_shortcut=True)
 
+        # Boost Q to compensate for removed cubic path when use_cubic=False
+        cubic_mult = 3 if cubic_mode == 'general' else 2
+        q_eff = (4 + cubic_mult * 2 // 2) if not use_cubic else 4
+
         # Block 3: Quadratic + Cubic (no pool)
         self.block3 = VolterraBlock3D(
-            32, 64, Q=4, Qc=2,
+            32, 64, Q=q_eff, Qc=2,
             use_cubic=use_cubic, cubic_mode=cubic_mode,
             use_shortcut=True,
         )
 
         # Block 4: Quadratic + Cubic
         self.block4 = VolterraBlock3D(
-            64, 96, Q=4, Qc=2, stride=2,
+            64, 96, Q=q_eff, Qc=2, stride=2,
             use_cubic=use_cubic, cubic_mode=cubic_mode,
             use_shortcut=True,
         )
@@ -90,8 +94,12 @@ class FusionHead(nn.Module):
     def __init__(self, num_classes, num_ch=3, cubic_mode='symmetric', use_cubic=True):
         super().__init__()
 
+        # Boost Q to compensate for removed cubic path when use_cubic=False
+        cubic_mult = 3 if cubic_mode == 'general' else 2
+        q_eff = (2 + cubic_mult * 2 // 2) if not use_cubic else 2
+
         self.block1 = VolterraBlock3D(
-            num_ch, 256, Q=2, Qc=2, stride=2,
+            num_ch, 256, Q=q_eff, Qc=2, stride=2,
             use_cubic=use_cubic, cubic_mode=cubic_mode,
             use_shortcut=True, gate_quadratic=True,
         )
