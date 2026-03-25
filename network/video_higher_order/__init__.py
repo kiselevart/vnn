@@ -5,7 +5,7 @@ Provides backbone architectures and fusion heads with 2nd + 3rd order
 Volterra interactions for video classification.
 """
 
-from .vnn_4block import VNNRgbHO, VNNFusionHO, VNNCubicToggle, Backbone4Block, FusionHead, SimpleBackbone
+from .vnn_4block import VNNRgbHO, VNNFusionHO, Backbone4Block, FusionHead
 from .vnn_7block import VNNDeep
 from .volterra_blocks import (
     VolterraBlock3D, MultiKernelBlock3D, ClassifierHead,
@@ -14,9 +14,9 @@ from .volterra_blocks import (
 
 __all__ = [
     # End-to-end models
-    "VNNRgbHO", "VNNFusionHO", "VNNCubicToggle", "VNNDeep",
+    "VNNRgbHO", "VNNFusionHO", "VNNDeep",
     # Backbones and heads
-    "Backbone4Block", "FusionHead", "SimpleBackbone",
+    "Backbone4Block", "FusionHead",
     # Building blocks
     "VolterraBlock3D", "MultiKernelBlock3D", "ClassifierHead",
     # Primitives

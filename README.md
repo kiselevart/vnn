@@ -190,10 +190,9 @@ python3 train.py \
 | `vnn_ortho` | CIFAR-10 | ResNet18-like backbone with Chebyshev T2(x) polynomial features and spectral normalization |
 | `vnn_simple` | CIFAR-10 | Lightweight VNN without orthogonalization |
 | `resnet18` | CIFAR-10 | Standard ResNet18 baseline (adapted for 32×32 input) |
-| `vnn_rgb_ho` | Video | 4-block 3D backbone (quadratic + cubic) → fusion classifier head, RGB only |
-| `vnn_fusion_ho` | Video | Two-stream: RGB backbone + flow backbone → cross-stream product → fusion head |
+| `vnn_rgb_ho` | Video | 4-block 3D backbone (quadratic + cubic) → fusion classifier head, RGB only; use `--disable_cubic` to ablate cubic |
+| `vnn_fusion_ho` | Video | Two-stream: RGB backbone + flow backbone → cross-stream product → fusion head; use `--disable_cubic` to ablate cubic |
 | `vnn_complex_ho` | Video | Deeper 7-block backbone, single RGB stream, includes classifier |
-| `vnn_cubic_simple_toggle` | Video | 4-block backbone with `--disable_cubic` flag to ablate cubic contribution |
 | `vnn_rgb` | Video | Legacy RGB-only model (older backbone) |
 | `vnn_fusion` | Video | Legacy two-stream fusion (older backbone) |
 
@@ -332,13 +331,12 @@ The `--Q` flag sets the quadratic rank for all blocks (default: 2). Cubic rank (
 | `--weight_decay` | 5e-4 | L2 regularization strength |
 | `--label_smoothing` | 0.0 | Cross-entropy label smoothing factor |
 | `--Q` | 2 | Quadratic rank (number of CP components) |
-| `--disable_cubic` | False | Ablate cubic path (for `vnn_cubic_simple_toggle`) |
+| `--disable_cubic` | False | Ablate cubic path in `vnn_rgb_ho` and `vnn_fusion_ho` (quadratic only) |
 | `--num_workers` | 0 | DataLoader worker processes |
 | `--device` | auto | `auto`, `cuda`, `mps`, `cpu` |
 | `--resume` | None | Path to checkpoint `.pth` to resume from |
-| `--run_name` | auto | Override the run directory name (default: `model_dataset_timestamp`) |
+| `--run_name` | required | Run directory name (used for checkpoints and W&B display) |
 | `--test_only` | False | Skip training, run evaluation on the test set only |
-| `--wandb_name` | None | W&B run display name |
 | `--wandb_mode` | online | `online`, `offline`, `disabled` |
 | `--wandb_project` | auto | W&B project name override |
 | `--wandb_entity` | None | W&B team or user override |
@@ -358,9 +356,8 @@ Then run training normally — project and run names are auto-generated from mod
 
 **Override run metadata:**
 ```bash
-python3 train.py --dataset ucf101 --model vnn_fusion_ho \
+python3 train.py --dataset ucf101 --model vnn_fusion_ho --run_name experiment-1 \
   --wandb_project my-project \
-  --wandb_name "experiment-1/fusion-ho" \
   --wandb_entity my-team
 ```
 
@@ -432,7 +429,6 @@ Several mechanisms guard against the instability inherent in polynomial feature 
 │       ├── blocks.py               # VolterraBlock3D, MultiKernelBlock3D
 │       ├── backbone_4block.py      # 4-block backbone → [B, 96, T/8, H/8, W/8]
 │       ├── backbone_7block.py      # Deeper 7-block variant
-│       ├── backbone_cubic_toggle.py # Ablation backbone (cubic on/off)
 │       └── fusion_head.py          # Single VolterraBlock3D + ClassifierHead
 │
 ├── utils/

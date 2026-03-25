@@ -4,10 +4,8 @@
 Classes:
     Backbone4Block    — 4-block 3D VNN backbone (multi-scale first block)
     FusionHead        — Single-block fusion classifier with differential LR
-    SimpleBackbone    — 4-block backbone with optional cubic toggle
     VNNRgbHO          — End-to-end RGB model (Backbone4Block + FusionHead)
     VNNFusionHO       — End-to-end two-stream fusion (RGB + Flow)
-    VNNCubicToggle    — End-to-end model with cubic toggle (SimpleBackbone + FusionHead)
 """
 
 import torch
@@ -36,7 +34,7 @@ class Backbone4Block(nn.Module):
         cubic_mode: 'symmetric' or 'general' cubic factorization.
     """
 
-    def __init__(self, num_ch=3, cubic_mode='symmetric'):
+    def __init__(self, num_ch=3, cubic_mode='symmetric', use_cubic=True):
         super().__init__()
 
         # Block 1: Multi-kernel, quadratic only
@@ -52,14 +50,14 @@ class Backbone4Block(nn.Module):
         # Block 3: Quadratic + Cubic (no pool)
         self.block3 = VolterraBlock3D(
             32, 64, Q=4, Qc=2,
-            use_cubic=True, cubic_mode=cubic_mode,
+            use_cubic=use_cubic, cubic_mode=cubic_mode,
             use_shortcut=True,
         )
 
         # Block 4: Quadratic + Cubic
         self.block4 = VolterraBlock3D(
             64, 96, Q=4, Qc=2, stride=2,
-            use_cubic=True, cubic_mode=cubic_mode,
+            use_cubic=use_cubic, cubic_mode=cubic_mode,
             use_shortcut=True,
         )
 
@@ -70,40 +68,6 @@ class Backbone4Block(nn.Module):
         x = self.block4(x)
         return x
 
-
-class SimpleBackbone(nn.Module):
-    """4-block VNN backbone with optional cubic toggle.
-
-    The ``use_cubic`` flag enables a clean A/B comparison:
-        use_cubic=False → Pure 2nd-order (quadratic only)
-        use_cubic=True  → 2nd + 3rd order (quadratic + general cubic)
-
-    Args:
-        use_cubic: If True, enables general cubic (a·b·c) in all blocks.
-    """
-
-    def __init__(self, use_cubic=True):
-        super().__init__()
-
-        config = [
-            (3,  32, 2),   # Block 1
-            (32, 64, 2),   # Block 2
-            (64, 64, 1),   # Block 3 (no pool)
-            (64, 96, 2),   # Block 4
-        ]
-
-        self.layers = nn.ModuleList([
-            VolterraBlock3D(
-                in_c, out_c, Q=4, Qc=2, stride=s,
-                use_cubic=use_cubic, cubic_mode='general',
-            )
-            for in_c, out_c, s in config
-        ])
-
-    def forward(self, x):
-        for layer in self.layers:
-            x = layer(x)
-        return x
 
 
 # ---------------------------------------------------------------------------
@@ -123,12 +87,12 @@ class FusionHead(nn.Module):
         cubic_mode: 'symmetric' or 'general' cubic factorization.
     """
 
-    def __init__(self, num_classes, num_ch=3, cubic_mode='symmetric'):
+    def __init__(self, num_classes, num_ch=3, cubic_mode='symmetric', use_cubic=True):
         super().__init__()
 
         self.block1 = VolterraBlock3D(
             num_ch, 256, Q=2, Qc=2, stride=2,
-            use_cubic=True, cubic_mode=cubic_mode,
+            use_cubic=use_cubic, cubic_mode=cubic_mode,
             use_shortcut=True, gate_quadratic=True,
         )
         self.classifier = ClassifierHead(12544, num_classes)
@@ -163,10 +127,10 @@ class VNNRgbHO(nn.Module):
         cubic_mode: 'symmetric' or 'general' cubic factorization.
     """
 
-    def __init__(self, num_classes, cubic_mode='symmetric'):
+    def __init__(self, num_classes, cubic_mode='symmetric', use_cubic=True):
         super().__init__()
-        self.backbone = Backbone4Block(num_ch=3, cubic_mode=cubic_mode)
-        self.head = FusionHead(num_classes=num_classes, num_ch=96, cubic_mode=cubic_mode)
+        self.backbone = Backbone4Block(num_ch=3, cubic_mode=cubic_mode, use_cubic=use_cubic)
+        self.head = FusionHead(num_classes=num_classes, num_ch=96, cubic_mode=cubic_mode, use_cubic=use_cubic)
 
     def forward(self, x):
         return self.head(self.backbone(x))
@@ -196,11 +160,11 @@ class VNNFusionHO(nn.Module):
         cubic_mode: 'symmetric' or 'general' cubic factorization.
     """
 
-    def __init__(self, num_classes, cubic_mode='symmetric'):
+    def __init__(self, num_classes, cubic_mode='symmetric', use_cubic=True):
         super().__init__()
-        self.model_rgb = Backbone4Block(num_ch=3, cubic_mode=cubic_mode)
-        self.model_of = Backbone4Block(num_ch=2, cubic_mode=cubic_mode)
-        self.model_fuse = FusionHead(num_classes=num_classes, num_ch=288, cubic_mode=cubic_mode)
+        self.model_rgb = Backbone4Block(num_ch=3, cubic_mode=cubic_mode, use_cubic=use_cubic)
+        self.model_of = Backbone4Block(num_ch=2, cubic_mode=cubic_mode, use_cubic=use_cubic)
+        self.model_fuse = FusionHead(num_classes=num_classes, num_ch=288, cubic_mode=cubic_mode, use_cubic=use_cubic)
 
     def forward(self, x):
         rgb, flow = x
@@ -221,29 +185,3 @@ class VNNFusionHO(nn.Module):
                 yield p
 
 
-class VNNCubicToggle(nn.Module):
-    """SimpleBackbone + FusionHead with optional cubic toggle.
-
-    Args:
-        num_classes: Number of output classes.
-        use_cubic: If True, enables general cubic in the backbone.
-    """
-
-    def __init__(self, num_classes, use_cubic=True):
-        super().__init__()
-        self.backbone = SimpleBackbone(use_cubic=use_cubic)
-        self.head = FusionHead(num_classes=num_classes, num_ch=96)
-
-    def forward(self, x):
-        return self.head(self.backbone(x))
-
-    def get_1x_lr_params(self):
-        skip = {id(p) for p in self.head.classifier.fc.parameters()}
-        for p in self.parameters():
-            if p.requires_grad and id(p) not in skip:
-                yield p
-
-    def get_10x_lr_params(self):
-        for p in self.head.classifier.fc.parameters():
-            if p.requires_grad:
-                yield p

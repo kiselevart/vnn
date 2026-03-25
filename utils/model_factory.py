@@ -12,7 +12,7 @@ from network.video import (
 )
 
 # Higher-order video models
-from network.video_higher_order import VNNRgbHO, VNNFusionHO, VNNCubicToggle, VNNDeep
+from network.video_higher_order import VNNRgbHO, VNNFusionHO, VNNDeep
 
 
 def get_model(args, device):
@@ -94,16 +94,15 @@ def get_model(args, device):
             net = VideoVNNFusion(num_classes=args.num_classes)
 
         elif args.model == "vnn_rgb_ho":
-            net = VNNRgbHO(num_classes=args.num_classes, cubic_mode=args.cubic_mode)
+            net = VNNRgbHO(num_classes=args.num_classes, cubic_mode=args.cubic_mode,
+                           use_cubic=not args.disable_cubic)
 
         elif args.model == "vnn_fusion_ho":
-            net = VNNFusionHO(num_classes=args.num_classes, cubic_mode=args.cubic_mode)
+            net = VNNFusionHO(num_classes=args.num_classes, cubic_mode=args.cubic_mode,
+                              use_cubic=not args.disable_cubic)
 
         elif args.model == "vnn_complex_ho":
             net = VNNDeep(num_classes=args.num_classes)
-
-        elif args.model == "vnn_cubic_simple_toggle":
-            net = VNNCubicToggle(num_classes=args.num_classes, use_cubic=not args.disable_cubic)
 
         else:
             raise ValueError(f"Unknown Video model: {args.model}")
