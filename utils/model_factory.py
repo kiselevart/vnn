@@ -101,6 +101,18 @@ def get_model(args, device):
             net = VNNFusionHO(num_classes=args.num_classes, cubic_mode=args.cubic_mode,
                               use_cubic=not args.disable_cubic)
 
+        elif args.model == "vnn_rgb_sym25":
+            net = VNNRgbHO(num_classes=args.num_classes, cubic_mode='symmetric',
+                           use_cubic=True, Q=7, Qc=8)  # ~24.98M
+
+        elif args.model == "vnn_rgb_gen25":
+            net = VNNRgbHO(num_classes=args.num_classes, cubic_mode='general',
+                           use_cubic=True, Q=6, Qc=6)  # ~25.42M
+
+        elif args.model == "vnn_rgb_quad25":
+            net = VNNRgbHO(num_classes=args.num_classes, use_cubic=False,
+                           Q=15, Qc=0)  # ~24.98M
+
         elif args.model == "vnn_complex_ho":
             net = VNNDeep(num_classes=args.num_classes)
 

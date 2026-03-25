@@ -91,15 +91,15 @@ class FusionHead(nn.Module):
         cubic_mode: 'symmetric' or 'general' cubic factorization.
     """
 
-    def __init__(self, num_classes, num_ch=3, cubic_mode='symmetric', use_cubic=True):
+    def __init__(self, num_classes, num_ch=3, cubic_mode='symmetric', use_cubic=True, Q=2, Qc=2):
         super().__init__()
 
         # Boost Q to compensate for removed cubic path when use_cubic=False
         cubic_mult = 3 if cubic_mode == 'general' else 2
-        q_eff = (2 + cubic_mult * 2 // 2) if not use_cubic else 2
+        q_eff = (Q + cubic_mult * Qc // 2) if not use_cubic else Q
 
         self.block1 = VolterraBlock3D(
-            num_ch, 256, Q=q_eff, Qc=2, stride=2,
+            num_ch, 256, Q=q_eff, Qc=Qc, stride=2,
             use_cubic=use_cubic, cubic_mode=cubic_mode,
             use_shortcut=True, gate_quadratic=True,
         )
@@ -135,10 +135,11 @@ class VNNRgbHO(nn.Module):
         cubic_mode: 'symmetric' or 'general' cubic factorization.
     """
 
-    def __init__(self, num_classes, cubic_mode='symmetric', use_cubic=True):
+    def __init__(self, num_classes, cubic_mode='symmetric', use_cubic=True, Q=2, Qc=2):
         super().__init__()
         self.backbone = Backbone4Block(num_ch=3, cubic_mode=cubic_mode, use_cubic=use_cubic)
-        self.head = FusionHead(num_classes=num_classes, num_ch=96, cubic_mode=cubic_mode, use_cubic=use_cubic)
+        self.head = FusionHead(num_classes=num_classes, num_ch=96,
+                               cubic_mode=cubic_mode, use_cubic=use_cubic, Q=Q, Qc=Qc)
 
     def forward(self, x):
         return self.head(self.backbone(x))

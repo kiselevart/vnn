@@ -22,7 +22,7 @@ def parse_args():
     parser.add_argument("--dataset", type=str, required=True, choices=["cifar10", "ucf10", "ucf101", "hmdb51", "ucf11"])
     parser.add_argument("--model", type=str, required=True)
     parser.add_argument("--epochs", type=int, default=50)
-    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--momentum", type=float, default=0.9)
     parser.add_argument("--weight_decay", type=float, default=1e-4)
@@ -125,7 +125,7 @@ class Trainer:
                 params.append({"params": get_10x(), "lr": args.lr * 10})
                 
             self.optimizer = optim.Adam(params, lr=args.lr, weight_decay=args.weight_decay)
-            self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=5, gamma=0.9)
+            self.scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer, T_0=30, T_mult=2, eta_min=1e-6)
         else:
             self.optimizer = optim.SGD(self.model.parameters(), lr=args.lr, momentum=args.momentum, 
                                      weight_decay=args.weight_decay, nesterov=True)

@@ -19,8 +19,9 @@ python3 train.py --task cifar --dataset cifar10 --model vnn_ortho --epochs 50 --
 
 **Train video (UCF101):**
 ```bash
-python3 train.py --task video --dataset ucf101 --model vnn_fusion_ho --num_workers 8 --batch_size 8 --lr 1e-4
+CUDA_VISIBLE_DEVICES=? python train.py --dataset ucf101 --model vnn_fusion_ho --run_name ???
 ```
+All other args (task, batch_size, lr, num_workers, etc.) are left at defaults.
 
 **Evaluate only (no training):**
 ```bash
