@@ -156,15 +156,20 @@ class VideoDataset(Dataset):
     def preprocess(self):
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir, exist_ok=True)
-        
+
         for split in ['train', 'val', 'test']:
             os.makedirs(os.path.join(self.output_dir, split), exist_ok=True)
 
-        if self.pre_split:
+        train_list = os.path.join(self.root_dir, 'ucfTrainTestlist', 'trainlist01.txt')
+        test_list  = os.path.join(self.root_dir, 'ucfTrainTestlist', 'testlist01.txt')
+        if os.path.exists(train_list) and os.path.exists(test_list):
+            # Official UCF101 splits — group-aware, no performer leakage
+            self._preprocess_official_splits(train_list, test_list)
+        elif self.pre_split:
             # Data already split into train/val/test with class subfolders of videos
             self._preprocess_pre_split()
         else:
-            # Flat class folders — split ourselves
+            # Flat class folders — split ourselves (not recommended for UCF101)
             self._preprocess_flat()
 
         print('Preprocessing finished.')
@@ -195,6 +200,60 @@ class VideoDataset(Dataset):
                         entries.append(os.path.join(name, nested))
 
         return entries
+
+    def _preprocess_official_splits(self, train_list_path, test_list_path):
+        """Preprocess using official UCF101 split files (trainlist01.txt / testlist01.txt).
+
+        Val is carved from the official training set by splitting performer *groups*
+        (the gXX part of the filename) — all clips of a group go to the same partition,
+        preventing same-performer leakage between train and val.
+        """
+        import re
+        from collections import defaultdict
+
+        def parse_list(path):
+            entries = []
+            with open(path) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    parts = line.split('/')
+                    if len(parts) != 2:
+                        continue
+                    cls = parts[0]
+                    vid = parts[1].split()[0]  # strip label if present
+                    entries.append((cls, vid))
+            return entries
+
+        train_entries = parse_list(train_list_path)
+        test_entries  = parse_list(test_list_path)
+
+        # Group train entries by (class, performer group)
+        class_groups = defaultdict(lambda: defaultdict(list))  # cls -> gXX -> [vids]
+        for cls, vid in train_entries:
+            m = re.match(r'v_\w+_(g\d+)_c\d+\.avi', vid)
+            group = m.group(1) if m else 'g00'
+            class_groups[cls][group].append(vid)
+
+        # Split groups 80/20 into train/val per class, seeded for reproducibility
+        rng = np.random.RandomState(42)
+        final_train, final_val = [], []
+        for cls in sorted(class_groups.keys()):
+            groups = sorted(class_groups[cls].keys())
+            rng.shuffle(groups)
+            n_val = max(1, int(len(groups) * 0.2))
+            val_groups = set(groups[:n_val])
+            for group in groups:
+                for vid in class_groups[cls][group]:
+                    (final_val if group in val_groups else final_train).append((cls, vid))
+
+        for split_name, entries in [('train', final_train), ('val', final_val), ('test', test_entries)]:
+            print(f'  {split_name}: {len(entries)} videos')
+            for cls, vid in tqdm(entries, desc=f'Processing {split_name}'):
+                save_dir = os.path.join(self.output_dir, split_name, cls)
+                os.makedirs(save_dir, exist_ok=True)
+                self.process_video(vid, cls, save_dir)
 
     def _preprocess_pre_split(self):
         """Preprocess when root_dir already has train/val/test/class/video.avi structure."""
