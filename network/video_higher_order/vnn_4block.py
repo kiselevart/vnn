@@ -173,13 +173,20 @@ class VNNFusionHO(nn.Module):
         super().__init__()
         self.model_rgb = Backbone4Block(num_ch=3, cubic_mode=cubic_mode, use_cubic=use_cubic)
         self.model_of = Backbone4Block(num_ch=2, cubic_mode=cubic_mode, use_cubic=use_cubic)
-        self.model_fuse = FusionHead(num_classes=num_classes, num_ch=288, cubic_mode=cubic_mode, use_cubic=use_cubic)
+        stream_ch = 96  # Backbone4Block output channels
+        # BN + clamp on the cross-stream product prevents float16 overflow and
+        # quadratic gradient amplification through the rgb*flow interaction term.
+        self.cross_bn = nn.BatchNorm3d(stream_ch)
+        self.model_fuse = FusionHead(num_classes=num_classes, num_ch=stream_ch * 3, cubic_mode=cubic_mode, use_cubic=use_cubic)
+        self.cross_abs_max = 0.0  # tracked each forward pass for logging
 
     def forward(self, x):
         rgb, flow = x
         out_rgb = self.model_rgb(rgb)
         out_of = self.model_of(flow)
-        cross = out_rgb * out_of
+        cross = torch.clamp(self.cross_bn(out_rgb * out_of), -50.0, 50.0)
+        with torch.no_grad():
+            self.cross_abs_max = cross.abs().max().item()
         return self.model_fuse(torch.cat((out_rgb, out_of, cross), 1))
 
     def get_1x_lr_params(self):

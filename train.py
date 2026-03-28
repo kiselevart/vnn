@@ -172,20 +172,23 @@ class Trainer:
         is_train = (mode == "train")
         self.model.train() if is_train else self.model.eval()
         loader = self.loaders[mode if is_train else "val" if mode == "val" else "test"]
-        
-        stats = {"loss": 0.0, "correct": 0, "total": 0, "batches": 0, "grad_norm": 0.0}
+
+        stats = {"loss": 0.0, "correct": 0, "total": 0, "batches": 0,
+                 "grad_norm": 0.0, "grad_batches": 0, "nan_grad_batches": 0}
         self.finite_debug_prints = 0
-        
+        if is_train:
+            self.skipped_stats = {"total": 0, "input": 0, "output": 0, "loss": 0}
+
         pbar = tqdm(enumerate(loader), total=len(loader), desc=f"Ep {epoch+1} [{mode.upper()}]")
-        
+
         for batch_idx, (inputs, targets) in pbar:
             inputs = [x.to(self.device) for x in inputs] if isinstance(inputs, (list, tuple)) else inputs.to(self.device)
             targets = targets.to(self.device, dtype=torch.long).view(-1)
-            
+
             if not self._check_finite(inputs, "input", epoch, batch_idx, mode): continue
-            
+
             if is_train: self.optimizer.zero_grad()
-            
+
             with (autocast(device_type=self.device.type) if self.amp_enabled else contextlib.nullcontext()):
                 with contextlib.nullcontext() if is_train else torch.no_grad():
                     outputs = self.model(inputs)
@@ -200,27 +203,51 @@ class Trainer:
                 if self.scaler:
                     self.scaler.scale(loss).backward()
                     self.scaler.unscale_(self.optimizer)
-                    stats["grad_norm"] += torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0).item()
-                    self.scaler.step(self.optimizer)
-                    self.scaler.update()
                 else:
                     loss.backward()
-                    stats["grad_norm"] += torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0).item()
-                    self.optimizer.step()
+
+                bad_grads = any(
+                    p.grad is not None and not torch.isfinite(p.grad).all()
+                    for p in self.model.parameters()
+                )
+                if bad_grads:
+                    stats["nan_grad_batches"] += 1
+                    self.optimizer.zero_grad(set_to_none=True)
+                    if self.scaler:
+                        self.scaler.update()
+                else:
+                    grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0).item()
+                    stats["grad_norm"] += grad_norm
+                    stats["grad_batches"] += 1
+                    if self.scaler:
+                        self.scaler.step(self.optimizer)
+                        self.scaler.update()
+                    else:
+                        self.optimizer.step()
 
             stats["loss"] += loss.item()
             stats["batches"] += 1
             stats["total"] += targets.size(0)
             stats["correct"] += outputs.max(1)[1].eq(targets).sum().item()
-            
-            pbar.set_postfix({
+
+            postfix = {
                 "L": f"{stats['loss']/stats['batches']:.3f}",
                 "A": f"{100.*stats['correct']/stats['total']:.1f}%",
-            })
+            }
+            if is_train:
+                postfix["gn"] = f"{stats['grad_norm']/max(1, stats['grad_batches']):.2f}"
+                if stats["nan_grad_batches"]:
+                    postfix["nan_g"] = stats["nan_grad_batches"]
+            pbar.set_postfix(postfix)
 
-        res = {"loss": stats["loss"] / stats["batches"], "acc": 100. * stats["correct"] / stats["total"] if stats["total"] > 0 else 0}
-        if mode == "train":
-            res["grad_norm"] = stats["grad_norm"] / stats["batches"]
+        n = stats["batches"]
+        res = {
+            "loss": stats["loss"] / n if n else 0,
+            "acc":  100. * stats["correct"] / stats["total"] if stats["total"] else 0,
+        }
+        if is_train:
+            res["grad_norm"] = stats["grad_norm"] / max(1, stats["grad_batches"])
+            res["nan_grad_batches"] = stats["nan_grad_batches"]
         return res
 
     def run(self):
@@ -237,17 +264,31 @@ class Trainer:
             self.scheduler.step()
             
             w_mean, w_max = self._get_weight_stats()
-            print(f"Ep {epoch+1} | T_Loss: {t_stats['loss']:.3f} T_Acc: {t_stats['acc']:.1f}% | V_Loss: {v_stats['loss']:.3f} V_Acc: {v_stats['acc']:.1f}% | W_Max: {w_max:.2e}")
-            
+            print(
+                f"Ep {epoch+1} | "
+                f"T_Loss: {t_stats['loss']:.3f} T_Acc: {t_stats['acc']:.1f}% | "
+                f"V_Loss: {v_stats['loss']:.3f} V_Acc: {v_stats['acc']:.1f}% | "
+                f"GN: {t_stats['grad_norm']:.3f} | "
+                f"NaN_Grad: {t_stats['nan_grad_batches']} Skipped: {self.skipped_stats['total']} | "
+                f"W_Max: {w_max:.2e}"
+            )
+
             log_data = {f"train/{k}": v for k, v in t_stats.items()}
             log_data.update({f"val/{k}": v for k, v in v_stats.items()})
             log_data.update({
-                "epoch": epoch+1, 
+                "epoch": epoch+1,
                 "lr": self.optimizer.param_groups[0]["lr"],
                 "weights/mean": w_mean,
-                "weights/max": w_max
+                "weights/max": w_max,
+                "skip/total":  self.skipped_stats["total"],
+                "skip/input":  self.skipped_stats["input"],
+                "skip/output": self.skipped_stats["output"],
+                "skip/loss":   self.skipped_stats["loss"],
             })
-            if self.scaler: log_data["amp/scale"] = self.scaler.get_scale()
+            if self.scaler:
+                log_data["amp/scale"] = self.scaler.get_scale()
+            if hasattr(self.model, "cross_abs_max"):
+                log_data["train/cross_abs_max"] = self.model.cross_abs_max
             log_data.update(self._get_gate_stats())
             self.wandb.log(log_data)
 
