@@ -1,4 +1,6 @@
 import os
+import re
+from collections import defaultdict
 from sklearn.model_selection import train_test_split
 
 import torch
@@ -40,11 +42,11 @@ class VideoDataset(Dataset):
         # denormalize without hardcoding these values themselves.
         self.mean = np.array([90.0, 98.0, 102.0], dtype=np.float32)  # [B, G, R]
 
-        # Detect whether root_dir has pre-split structure (train/val/test subdirs)
+        # Detect whether root_dir has pre-split structure (train/test subdirs)
         # or flat class folders that need splitting
-        self.pre_split = all(
-            os.path.isdir(os.path.join(self.root_dir, s))
-            for s in ('train', 'val', 'test')
+        self.pre_split = (
+            os.path.isdir(os.path.join(self.root_dir, 'train')) and
+            os.path.isdir(os.path.join(self.root_dir, 'test'))
         )
 
         if not self.check_integrity():
@@ -208,9 +210,6 @@ class VideoDataset(Dataset):
         (the gXX part of the filename) — all clips of a group go to the same partition,
         preventing same-performer leakage between train and val.
         """
-        import re
-        from collections import defaultdict
-
         def parse_list(path):
             entries = []
             with open(path) as f:
@@ -255,20 +254,80 @@ class VideoDataset(Dataset):
                 os.makedirs(save_dir, exist_ok=True)
                 self.process_video(vid, cls, save_dir)
 
+    def _carve_val_from_train(self, train_entries, val_ratio=0.2, seed=42):
+        """Group-aware val split: all clips from the same _gXX_ performer group
+        stay together so no performer leaks between train and val.
+        Returns (final_train, val) as lists of (class, video) tuples.
+        """
+        rng = np.random.RandomState(seed)
+        class_groups = defaultdict(lambda: defaultdict(list))
+        for cls, vid in train_entries:
+            m = re.match(r'v_\w+_(g\d+)_c\d+\.avi', vid)
+            group = m.group(1) if m else 'g00'
+            class_groups[cls][group].append(vid)
+
+        final_train, final_val = [], []
+        for cls in sorted(class_groups):
+            groups = sorted(class_groups[cls])
+            rng.shuffle(groups)
+            n_val = max(1, int(len(groups) * val_ratio))
+            val_groups = set(groups[:n_val])
+            for g in groups:
+                for vid in class_groups[cls][g]:
+                    (final_val if g in val_groups else final_train).append((cls, vid))
+        return final_train, final_val
+
     def _preprocess_pre_split(self):
-        """Preprocess when root_dir already has train/val/test/class/video.avi structure."""
-        for split in ['train', 'val', 'test']:
-            split_src = os.path.join(self.root_dir, split)
-            if not os.path.isdir(split_src):
-                continue
-            for action_name in sorted(os.listdir(split_src)):
-                action_dir = os.path.join(split_src, action_name)
+        """Preprocess when root_dir has train/test (and optionally val) class subfolders.
+
+        If no val/ dir exists, carves val from train using performer-group isolation.
+        """
+        has_val = os.path.isdir(os.path.join(self.root_dir, 'val'))
+
+        if has_val:
+            # All three dirs present — just extract frames for each
+            for split in ['train', 'val', 'test']:
+                split_src = os.path.join(self.root_dir, split)
+                if not os.path.isdir(split_src):
+                    continue
+                for action_name in sorted(os.listdir(split_src)):
+                    action_dir = os.path.join(split_src, action_name)
+                    if not os.path.isdir(action_dir):
+                        continue
+                    save_dir = os.path.join(self.output_dir, split, action_name)
+                    os.makedirs(save_dir, exist_ok=True)
+                    for video in self._collect_video_entries(action_dir):
+                        self.process_video(video, os.path.join(split, action_name), save_dir)
+        else:
+            # No val dir — collect train entries, carve val, then process all three
+            train_src = os.path.join(self.root_dir, 'train')
+            train_entries = []
+            for action_name in sorted(os.listdir(train_src)):
+                action_dir = os.path.join(train_src, action_name)
                 if not os.path.isdir(action_dir):
                     continue
-                save_dir = os.path.join(self.output_dir, split, action_name)
-                os.makedirs(save_dir, exist_ok=True)
                 for video in self._collect_video_entries(action_dir):
-                    self.process_video(video, os.path.join(split, action_name), save_dir)
+                    train_entries.append((action_name, video))
+
+            final_train, final_val = self._carve_val_from_train(train_entries)
+            print(f'  train: {len(final_train)}  val (carved): {len(final_val)}')
+
+            for split_name, entries in [('train', final_train), ('val', final_val)]:
+                for cls, vid in tqdm(entries, desc=f'Processing {split_name}'):
+                    save_dir = os.path.join(self.output_dir, split_name, cls)
+                    os.makedirs(save_dir, exist_ok=True)
+                    self.process_video(vid, os.path.join('train', cls), save_dir)
+
+            # Process test as-is
+            test_src = os.path.join(self.root_dir, 'test')
+            for action_name in sorted(os.listdir(test_src)):
+                action_dir = os.path.join(test_src, action_name)
+                if not os.path.isdir(action_dir):
+                    continue
+                save_dir = os.path.join(self.output_dir, 'test', action_name)
+                os.makedirs(save_dir, exist_ok=True)
+                for video in tqdm(self._collect_video_entries(action_dir), desc=f'test/{action_name}'):
+                    self.process_video(video, os.path.join('test', action_name), save_dir)
 
     def _preprocess_flat(self):
         """Preprocess when root_dir has flat class folders (original UCF101 layout)."""

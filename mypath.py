@@ -20,7 +20,7 @@ class Path:
         data_root = Path._repo_data_dir()
 
         if db == "ucf101":
-            root_dir = os.getenv("UCF101_ROOT", os.path.join(data_root, "ucf101"))
+            root_dir = os.getenv("UCF101_ROOT", os.path.join(data_root, "ucf101", "split1"))
             output_dir = os.getenv("UCF101_PREPROCESSED", os.path.join(data_root, "ucf101_pre"))
         elif db == "hmdb51":
             root_dir = os.getenv("HMDB51_ROOT", os.path.join(data_root, "hmdb51"))
