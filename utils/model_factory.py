@@ -12,7 +12,12 @@ from network.video import (
 )
 
 # Higher-order video models
-from network.video_higher_order import VNNRgbHO, VNNFusionHO, VNNDeep, CNNBaseline3D
+from network.video_higher_order import (
+    VNNRgbHO, VNNFusionHO,
+    lvn_rgb_gauss, lvn_rgb_signed,
+    lvn_fusion_gauss, lvn_fusion_signed,
+    lvn_laguerre_rgb, lvn_laguerre_fusion,
+)
 
 
 def get_model(args, device):
@@ -101,23 +106,24 @@ def get_model(args, device):
             net = VNNFusionHO(num_classes=args.num_classes, cubic_mode=args.cubic_mode,
                               use_cubic=not args.disable_cubic)
 
-        elif args.model == "vnn_rgb_sym25":
-            net = VNNRgbHO(num_classes=args.num_classes, cubic_mode='symmetric',
-                           use_cubic=True, Q=7, Qc=8)  # ~24.98M
+        # --- Laguerre VNN ablations ---
+        elif args.model == "lvn_rgb_gauss":
+            net = lvn_rgb_gauss(num_classes=args.num_classes)
 
-        elif args.model == "vnn_rgb_gen25":
-            net = VNNRgbHO(num_classes=args.num_classes, cubic_mode='general',
-                           use_cubic=True, Q=6, Qc=6)  # ~25.42M
+        elif args.model == "lvn_rgb_signed":
+            net = lvn_rgb_signed(num_classes=args.num_classes)
 
-        elif args.model == "vnn_rgb_quad25":
-            net = VNNRgbHO(num_classes=args.num_classes, use_cubic=False,
-                           Q=15, Qc=0)  # ~24.98M
+        elif args.model == "lvn_fusion_gauss":
+            net = lvn_fusion_gauss(num_classes=args.num_classes)
 
-        elif args.model == "vnn_complex_ho":
-            net = VNNDeep(num_classes=args.num_classes)
+        elif args.model == "lvn_fusion_signed":
+            net = lvn_fusion_signed(num_classes=args.num_classes)
 
-        elif args.model == "cnn_baseline":
-            net = CNNBaseline3D(num_classes=args.num_classes)  # ~25.3M
+        elif args.model == "lvn_laguerre_rgb":
+            net = lvn_laguerre_rgb(num_classes=args.num_classes)
+
+        elif args.model == "lvn_laguerre_fusion":
+            net = lvn_laguerre_fusion(num_classes=args.num_classes)
 
         else:
             raise ValueError(f"Unknown Video model: {args.model}")
