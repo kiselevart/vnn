@@ -24,6 +24,7 @@ def parse_args():
     parser.add_argument("--epochs", type=int, default=150)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--lr", type=float, default=2e-4)
+    parser.add_argument("--fc_lr_mult", type=float, default=3.0, help="LR multiplier for the final FC classifier layer")
     parser.add_argument("--momentum", type=float, default=0.9)
     parser.add_argument("--weight_decay", type=float, default=0.01)
     parser.add_argument("--label_smoothing", type=float, default=0.05)
@@ -119,11 +120,37 @@ class Trainer:
         if args.task == "video":
             get_1x = getattr(self.model, "get_1x_lr_params", None)
             get_10x = getattr(self.model, "get_10x_lr_params", None)
-            
-            params = [{"params": get_1x(), "lr": args.lr}] if callable(get_1x) else self.model.parameters()
+
+            # Separate BN/bias params from weight params — BN γ/β should not be
+            # decayed, as penalising γ toward zero fights against feature scaling.
+            def split_wd(param_iter):
+                decay, no_decay = [], []
+                for p in param_iter:
+                    if p.ndim <= 1:  # BN γ/β and biases are 1-D
+                        no_decay.append(p)
+                    else:
+                        decay.append(p)
+                return decay, no_decay
+
+            if callable(get_1x):
+                decay_1x, no_decay_1x = split_wd(get_1x())
+                params = [
+                    {"params": decay_1x,    "lr": args.lr, "weight_decay": args.weight_decay},
+                    {"params": no_decay_1x, "lr": args.lr, "weight_decay": 0.0},
+                ]
+            else:
+                decay_all, no_decay_all = split_wd(self.model.parameters())
+                params = [
+                    {"params": decay_all,    "lr": args.lr, "weight_decay": args.weight_decay},
+                    {"params": no_decay_all, "lr": args.lr, "weight_decay": 0.0},
+                ]
+
             if callable(get_10x):
-                params.append({"params": get_10x(), "lr": args.lr * 10})
-                
+                decay_fc, no_decay_fc = split_wd(get_10x())
+                fc_lr = args.lr * args.fc_lr_mult
+                params.append({"params": decay_fc,    "lr": fc_lr, "weight_decay": args.weight_decay})
+                params.append({"params": no_decay_fc, "lr": fc_lr, "weight_decay": 0.0})
+
             self.optimizer = optim.AdamW(params, lr=args.lr, weight_decay=args.weight_decay)
             self.scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer, T_0=50, T_mult=2, eta_min=1e-6)
         else:

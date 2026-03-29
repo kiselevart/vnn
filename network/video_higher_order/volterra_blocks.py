@@ -18,6 +18,15 @@ Building blocks:
 import torch
 import torch.nn as nn
 
+# Factor clamp values: chosen so a single un-summed product term is ≤ 50 in magnitude.
+# Clamping factors (not outputs) bounds the backward gradient through the product:
+#   quadratic:  ∂(left*right)/∂left  = right  → bounded by _QUAD_FC  = √50 ≈ 7.07
+#   cubic sym:  ∂(a²*b)/∂a           = 2ab    → bounded by 2·_CUB_FC² ≈ 27
+#   cubic gen:  ∂(a*b*c)/∂a          = b*c    → bounded by _CUB_FC²  ≈ 13.5
+# The post-sum output clamp (±50) stays as a backstop for the Q-fold summation.
+_QUAD_FC = 7.071   # √50
+_CUB_FC  = 3.684   # ∛50
+
 
 # ---------------------------------------------------------------------------
 # Volterra interaction primitives
@@ -37,17 +46,15 @@ def volterra_quadratic(x_conv, Q, nch_out):
         Tensor [B, C, T, H, W].
     """
     mid = Q * nch_out
-    left = x_conv[:, :mid]
-    right = x_conv[:, mid:]
+    # Clamp factors before multiplying — bounds backward gradient to ≤ _QUAD_FC per factor.
+    left  = x_conv[:, :mid].clamp(-_QUAD_FC, _QUAD_FC)
+    right = x_conv[:, mid:].clamp(-_QUAD_FC, _QUAD_FC)
 
-    # Quadratic product: (a * b)
-    product = left * right  # [B, Q*C, T, H, W]
-
-    # Stability: Clamp before summation to prevent explosion
-    product = torch.clamp(product, min=-50.0, max=50.0)
+    product = left * right  # [B, Q*C, T, H, W], |product| ≤ 50
 
     shape = product.shape
-    return product.view(shape[0], Q, nch_out, *shape[2:]).sum(dim=1)
+    # Post-sum clamp guards against Q-fold accumulation exceeding ±50.
+    return product.view(shape[0], Q, nch_out, *shape[2:]).sum(dim=1).clamp(-50.0, 50.0)
 
 
 def volterra_cubic_symmetric(x_conv, Q, nch_out):
@@ -67,17 +74,14 @@ def volterra_cubic_symmetric(x_conv, Q, nch_out):
         Tensor [B, C, T, H, W].
     """
     mid = Q * nch_out
-    a = x_conv[:, :mid]   # Feature detector (will be squared)
-    b = x_conv[:, mid:]   # Modulator/gate
+    # Clamp factors — bounds ∂(a²b)/∂a = 2ab to ≤ 2·_CUB_FC².
+    a = x_conv[:, :mid].clamp(-_CUB_FC, _CUB_FC)   # Feature detector (will be squared)
+    b = x_conv[:, mid:].clamp(-_CUB_FC, _CUB_FC)   # Modulator/gate
 
-    # Cubic product: (a² * b)
-    product = (a * a) * b  # [B, Q*C, T, H, W]
-
-    # Stability: Clamp before summation
-    product = torch.clamp(product, min=-50.0, max=50.0)
+    product = (a * a) * b  # [B, Q*C, T, H, W], |product| ≤ 50
 
     shape = product.shape
-    return product.view(shape[0], Q, nch_out, *shape[2:]).sum(dim=1)
+    return product.view(shape[0], Q, nch_out, *shape[2:]).sum(dim=1).clamp(-50.0, 50.0)
 
 
 def volterra_cubic_general(x_conv, Q, nch_out):
@@ -94,16 +98,13 @@ def volterra_cubic_general(x_conv, Q, nch_out):
     Returns:
         Tensor [B, C, T, H, W].
     """
-    a, b, c = torch.chunk(x_conv, 3, dim=1)
+    # Clamp factors — bounds ∂(a*b*c)/∂a = b*c to ≤ _CUB_FC².
+    a, b, c = [t.clamp(-_CUB_FC, _CUB_FC) for t in torch.chunk(x_conv, 3, dim=1)]
 
-    # Cubic product: (a * b * c)
-    product = a * b * c  # [B, Q*C, T, H, W]
-
-    # Stability: Clamp before summation
-    product = torch.clamp(product, min=-50.0, max=50.0)
+    product = a * b * c  # [B, Q*C, T, H, W], |product| ≤ 50
 
     shape = product.shape
-    return product.view(shape[0], Q, nch_out, *shape[2:]).sum(dim=1)
+    return product.view(shape[0], Q, nch_out, *shape[2:]).sum(dim=1).clamp(-50.0, 50.0)
 
 
 def init_vnn_weights(module):
@@ -192,6 +193,7 @@ class VolterraBlock3D(nn.Module):
         init_vnn_weights(self)
 
     def forward(self, x):
+        x = x.clamp(-50.0, 50.0)  # block-level firewall: prevents accumulated BN drift from feeding explosive values into interactions
         # Linear
         out = self.bn_lin(self.conv_lin(x))
 
@@ -273,6 +275,7 @@ class MultiKernelBlock3D(nn.Module):
         init_vnn_weights(self)
 
     def forward(self, x):
+        x = x.clamp(-50.0, 50.0)  # block-level firewall
         # Linear: parallel convs → concat → BN
         lin = self.bn_lin(torch.cat([c(x) for c in self.lin_convs], dim=1))
 

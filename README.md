@@ -95,16 +95,6 @@ export UCF101_PREPROCESSED=/path/to/ucf101_pre  # extracted frames (auto-created
 export HMDB51_ROOT=/path/to/hmdb51
 export HMDB51_PREPROCESSED=/path/to/hmdb51_pre
 
-# UCF10 / UCF11
-export UCF10_ROOT=/path/to/ucf10
-export UCF10_PREPROCESSED=/path/to/ucf10_pre
-export UCF11_ROOT=/path/to/ucf11
-export UCF11_PREPROCESSED=/path/to/ucf11_pre
-
-# CIFAR-10 (optional — torchvision downloads automatically)
-export CIFAR10_ROOT=/path/to/cifar10
-```
-
 ### Video Directory Structure
 
 Video datasets must follow this layout:
