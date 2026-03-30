@@ -11,10 +11,10 @@ from torch.autograd import Variable
 import numpy as np
 
 from dataloaders.dataset import VideoDataset
-from vnn.network.video import vnn_rgb_of_highQv2
+from network.video import vnn_rgb_of_highQ
 from joblib import Parallel, delayed
 
-from vnn.network.video import vnn_fusion_highQv2
+from network.video import vnn_fusion_highQ
 
 
 def flow(X, Ht, Wd, of_skip=1, polar=False):
@@ -87,15 +87,15 @@ saveName = modelName + '-' + dataset
 def train_model(dataset=dataset, save_dir=save_dir, num_classes=num_classes, lr=lr,
                 num_epochs=nEpochs, save_epoch=snapshot, useTest=useTest, test_interval=nTestInterval):
 
-    model_RGB = vnn_rgb_of_highQv2.VNN(num_classes=num_classes, num_ch=3, pretrained=False)
-    model_OF = vnn_rgb_of_highQv2.VNN(num_classes=num_classes, num_ch=2, pretrained=False)
-    model_fuse = vnn_fusion_highQv2.VNN_F(num_classes=num_classes, num_ch=192, pretrained=False)
+    model_RGB = vnn_rgb_of_highQ.VNN(num_classes=num_classes, num_ch=3, pretrained=False)
+    model_OF = vnn_rgb_of_highQ.VNN(num_classes=num_classes, num_ch=2, pretrained=False)
+    model_fuse = vnn_fusion_highQ.VNN_F(num_classes=num_classes, num_ch=192, pretrained=False)
 
     train_params = [
-        {'params': vnn_rgb_of_highQv2.get_1x_lr_params(model_RGB), 'lr': lr},
-        {'params': vnn_rgb_of_highQv2.get_1x_lr_params(model_OF), 'lr': lr},
-        {'params': vnn_fusion_highQv2.get_1x_lr_params(model_fuse), 'lr': lr},
-        {'params': vnn_fusion_highQv2.get_10x_lr_params(model_fuse), 'lr': lr},
+        {'params': vnn_rgb_of_highQ.get_1x_lr_params(model_RGB), 'lr': lr},
+        {'params': vnn_rgb_of_highQ.get_1x_lr_params(model_OF), 'lr': lr},
+        {'params': vnn_fusion_highQ.get_1x_lr_params(model_fuse), 'lr': lr},
+        {'params': vnn_fusion_highQ.get_10x_lr_params(model_fuse), 'lr': lr},
     ]
 
     criterion = nn.CrossEntropyLoss()
