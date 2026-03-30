@@ -21,8 +21,8 @@ def parse_args():
     # Core Training Args
     parser.add_argument("--dataset", type=str, required=True, choices=["cifar10", "ucf10", "ucf101", "hmdb51", "ucf11"])
     parser.add_argument("--model", type=str, required=True)
-    parser.add_argument("--epochs", type=int, default=150)
-    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--fc_lr_mult", type=float, default=10.0, help="LR multiplier for the final FC classifier layer")
     parser.add_argument("--momentum", type=float, default=0.9)
