@@ -23,11 +23,11 @@ def parse_args():
     parser.add_argument("--model", type=str, required=True)
     parser.add_argument("--epochs", type=int, default=150)
     parser.add_argument("--batch_size", type=int, default=64)
-    parser.add_argument("--lr", type=float, default=2e-4)
-    parser.add_argument("--fc_lr_mult", type=float, default=3.0, help="LR multiplier for the final FC classifier layer")
+    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--fc_lr_mult", type=float, default=10.0, help="LR multiplier for the final FC classifier layer")
     parser.add_argument("--momentum", type=float, default=0.9)
-    parser.add_argument("--weight_decay", type=float, default=0.01)
-    parser.add_argument("--label_smoothing", type=float, default=0.05)
+    parser.add_argument("--weight_decay", type=float, default=1e-4)
+    parser.add_argument("--label_smoothing", type=float, default=0.1)
     parser.add_argument("--Q", type=int, default=2)
     parser.add_argument("--clip_len", type=int, default=16,
                         help="Number of frames per clip. Must be a multiple of 16.")
@@ -157,7 +157,7 @@ class Trainer:
                 params.append({"params": no_decay_fc, "lr": fc_lr, "weight_decay": 0.0})
 
             self.optimizer = optim.AdamW(params, lr=args.lr, weight_decay=args.weight_decay)
-            self.scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer, T_0=50, T_mult=2, eta_min=1e-6)
+            self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=args.epochs, eta_min=1e-6)
         else:
             self.optimizer = optim.SGD(self.model.parameters(), lr=args.lr, momentum=args.momentum, 
                                      weight_decay=args.weight_decay, nesterov=True)
