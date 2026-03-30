@@ -326,17 +326,17 @@ class LaguerreBackbone(nn.Module):
 class LaguerreHead(nn.Module):
     def __init__(self, num_classes: int, num_ch: int = 96,
                  N_lag: int | None = None, alpha: float = 1.0,
-                 use_laguerre_basis: bool = True):
+                 clip_len: int = 16, use_laguerre_basis: bool = True):
         super().__init__()
         self.block = LaguerreVolterraBlock3D(
             num_ch, 256, Q=2, kernel_size=3, N_lag=N_lag, alpha=alpha,
             stride=2, use_shortcut=True, use_laguerre_basis=use_laguerre_basis,
         )
-        self.gap = nn.AdaptiveAvgPool3d(1)
-        self.classifier = ClassifierHead(256, num_classes)
+        fc_features = 256 * (clip_len // 16) * 7 * 7
+        self.classifier = ClassifierHead(fc_features, num_classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.classifier(self.gap(self.block(x)))
+        return self.classifier(self.block(x))
 
     def get_1x_lr_params(self):
         skip = {id(p) for p in self.classifier.fc.parameters()}
@@ -356,7 +356,7 @@ class LaguerreRgb(nn.Module):
         super().__init__()
         kw = dict(N_lag=N_lag, alpha=alpha, use_laguerre_basis=use_laguerre_basis)
         self.backbone = LaguerreBackbone(num_ch=3, **kw)
-        self.head     = LaguerreHead(num_classes=num_classes, **kw)
+        self.head     = LaguerreHead(num_classes=num_classes, clip_len=clip_len, **kw)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.head(self.backbone(x))
@@ -383,7 +383,8 @@ class LaguFusion(nn.Module):
         self.model_rgb = LaguerreBackbone(num_ch=3, **kw)
         self.model_of  = LaguerreBackbone(num_ch=2, **kw)
         self.cross_bn  = nn.BatchNorm3d(96)
-        self.head      = LaguerreHead(num_classes=num_classes, num_ch=288, **kw)
+        self.head      = LaguerreHead(num_classes=num_classes, num_ch=288,
+                                      clip_len=clip_len, **kw)
         self.cross_abs_max = 0.0
 
     def forward(self, x):

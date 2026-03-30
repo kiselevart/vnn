@@ -91,7 +91,8 @@ class FusionHead(nn.Module):
         cubic_mode: 'symmetric' or 'general' cubic factorization.
     """
 
-    def __init__(self, num_classes, num_ch=3, cubic_mode='symmetric', use_cubic=True, Q=2, Qc=2):
+    def __init__(self, num_classes, num_ch=3, cubic_mode='symmetric', use_cubic=True, Q=2, Qc=2,
+                 clip_len=16):
         super().__init__()
 
         # Boost Q to compensate for removed cubic path when use_cubic=False
@@ -103,12 +104,12 @@ class FusionHead(nn.Module):
             use_cubic=use_cubic, cubic_mode=cubic_mode,
             use_shortcut=True, gate_quadratic=True,
         )
-        self.gap = nn.AdaptiveAvgPool3d(1)
-        self.classifier = ClassifierHead(256, num_classes)
+        fc_features = 256 * (clip_len // 16) * 7 * 7
+        self.classifier = ClassifierHead(fc_features, num_classes)
 
     def forward(self, x):
         x = self.block1(x)
-        return self.classifier(self.gap(x))
+        return self.classifier(x)
 
     def get_1x_lr_params(self):
         """Returns all parameters except the final classifier FC layer."""
@@ -141,7 +142,8 @@ class VNNRgbHO(nn.Module):
         super().__init__()
         self.backbone = Backbone4Block(num_ch=3, cubic_mode=cubic_mode, use_cubic=use_cubic)
         self.head = FusionHead(num_classes=num_classes, num_ch=96,
-                               cubic_mode=cubic_mode, use_cubic=use_cubic, Q=Q, Qc=Qc)
+                               cubic_mode=cubic_mode, use_cubic=use_cubic, Q=Q, Qc=Qc,
+                               clip_len=clip_len)
 
     def forward(self, x):
         return self.head(self.backbone(x))
@@ -180,7 +182,8 @@ class VNNFusionHO(nn.Module):
         # quadratic gradient amplification through the rgb*flow interaction term.
         self.cross_bn = nn.BatchNorm3d(stream_ch)
         self.model_fuse = FusionHead(num_classes=num_classes, num_ch=stream_ch * 3,
-                                     cubic_mode=cubic_mode, use_cubic=use_cubic)
+                                     cubic_mode=cubic_mode, use_cubic=use_cubic,
+                                     clip_len=clip_len)
         self.cross_abs_max = 0.0  # tracked each forward pass for logging
 
     def forward(self, x):
