@@ -1,8 +1,9 @@
 import torch
 import torch.nn as nn
+# from mypath import Path
 
 class VNN(nn.Module):
-    def __init__(self, num_classes, num_ch = 3, pretrained=False):
+    def __init__(self, num_classes = 400, num_ch = 3, pretrained=False):
         super(VNN, self).__init__()
         Q1 = 4
         nch_out1_5 = 8; nch_out1_3 = 8; nch_out1_1 = 8;
@@ -48,19 +49,35 @@ class VNN(nn.Module):
         self.pool4 = nn.MaxPool3d(kernel_size=(2, 2, 2), stride=(2, 2, 2))
         self.bn24 = nn.BatchNorm3d(nch_out4)
         
-        # Q5 = 2
-        # nch_out5 = 256
-        # self.conv15 = nn.Conv3d(nch_out4, nch_out5, kernel_size=(3, 3, 3), padding=(1, 1, 1))
-        # self.bn15 = nn.BatchNorm3d(nch_out5)
-        # self.conv25 = nn.Conv3d(nch_out4, 2*Q5*nch_out5, kernel_size=(3, 3, 3), padding=(1, 1, 1))
-        # self.pool5 = nn.MaxPool3d(kernel_size=(2, 2, 2), stride=(2, 2, 2))
-        # self.bn25 = nn.BatchNorm3d(nch_out5)
+        Q6 = 4
+        nch_out6 = 128
+        self.conv16 = nn.Conv3d(nch_out4, nch_out6, kernel_size=(3, 3, 3), padding=(1, 1, 1))
+        self.bn16 = nn.BatchNorm3d(nch_out6)
+        self.conv26 = nn.Conv3d(nch_out4, 2*Q4*nch_out6, kernel_size=(3, 3, 3), padding=(1, 1, 1))
+        self.pool6 = nn.MaxPool3d(kernel_size=(2, 2, 2), stride=(2, 2, 2))
+        self.bn26 = nn.BatchNorm3d(nch_out6)
+        
+        Q7 = 4
+        nch_out7 = 256
+        self.conv17 = nn.Conv3d(nch_out6, nch_out7, kernel_size=(3, 3, 3), padding=(1, 1, 1))
+        self.bn17 = nn.BatchNorm3d(nch_out7)
+        self.conv27 = nn.Conv3d(nch_out6, 2*Q4*nch_out7, kernel_size=(3, 3, 3), padding=(1, 1, 1))
+        self.pool7 = nn.MaxPool3d(kernel_size=(2, 2, 2), stride=(2, 2, 2))
+        self.bn27 = nn.BatchNorm3d(nch_out7)
+        
+        Q5 = 2
+        nch_out5 = 256
+        self.conv15 = nn.Conv3d(nch_out7, nch_out5, kernel_size=(3, 3, 3), padding=(1, 1, 1))
+        self.bn15 = nn.BatchNorm3d(nch_out5)
+        self.conv25 = nn.Conv3d(nch_out7, 2*Q5*nch_out5, kernel_size=(3, 3, 3), padding=(1, 1, 1))
+        self.pool5 = nn.MaxPool3d(kernel_size=(2, 2, 2), stride=(2, 2, 2))
+        self.bn25 = nn.BatchNorm3d(nch_out5)
 
-        # self.fc6 = nn.Linear(8192, 4096)
-        # self.fc7 = nn.Linear(4096, 4096)
-#         self.fc8 = nn.Linear(25088, num_classes)
+#         self.fc6 = nn.Linear(100352, 4096)
+#         self.fc7 = nn.Linear(4096, 4096)
+        self.fc8 = nn.Linear(12544, num_classes)
 
-#         self.dropout = nn.Dropout(p=0.5)
+        self.dropout = nn.Dropout(p=0.5)
 
         self.relu = nn.ReLU()
 
@@ -112,7 +129,7 @@ class VNN(nn.Module):
         x21_add = self.bn21(x21_add)
 
         x = self.pool1(torch.add(x11, x21_add))
-        # x = torch.add(x11, x21_add)
+#         x = torch.add(x11, x21_add)
 
         # print('x: ', x.shape) 
 
@@ -165,38 +182,70 @@ class VNN(nn.Module):
         for q in range(Q4):
             x24_add = torch.add(x24_add, x24_mul[:,(q*nch_out4):((q*nch_out4)+(nch_out4)),:,:,:])
         x24_add = self.bn24(x24_add)
-        x = self.pool4(torch.add(x14, x24_add))
-        # x = torch.add(x14, x24_add)
+#         x = self.pool4(torch.add(x14, x24_add))
+        x = torch.add(x14, x24_add)
+    
+        Q6=4
+        nch_out6 = 128
+
+        x16 = self.conv16(x)
+        x16 = self.bn16(x16)
+        # print('x11: ', x11.shape)
+        x26 = self.conv26(x)
+        # print('x21: ', x21.shape)
+        x26_mul = torch.mul(x26[:,0:Q6*nch_out6,:,:,:],x26[:,Q6*nch_out6:2*Q6*nch_out6,:,:,:])
+        x26_add = torch.zeros_like(x16)
+        for q in range(Q6):
+            x26_add = torch.add(x26_add, x26_mul[:,(q*nch_out6):((q*nch_out6)+(nch_out6)),:,:,:])
+        x26_add = self.bn26(x26_add)
+        x = self.pool6(torch.add(x16, x26_add))
+#         x = torch.add(x16, x26_add)
+    
+        Q7=4
+        nch_out7 = 256
+
+        x17 = self.conv17(x)
+        x17 = self.bn17(x17)
+        # print('x11: ', x11.shape)
+        x27 = self.conv27(x)
+        # print('x21: ', x21.shape)
+        x27_mul = torch.mul(x27[:,0:Q7*nch_out7,:,:,:],x27[:,Q7*nch_out7:2*Q7*nch_out7,:,:,:])
+        x27_add = torch.zeros_like(x17)
+        for q in range(Q7):
+            x27_add = torch.add(x27_add, x27_mul[:,(q*nch_out7):((q*nch_out7)+(nch_out7)),:,:,:])
+        x27_add = self.bn27(x27_add)
+#         x = self.pool7(torch.add(x17, x27_add))
+        x = torch.add(x17, x27_add)
 
         # print('x: ', x.shape) 
 
-        # Q5 = 2
-        # nch_out5 = 256
-        # x15 = self.conv15(x)
-        # x15 = self.bn15(x15)
-        # # print('x11: ', x11.shape)
-        # x25 = self.conv25(x)
-        # # print('x21: ', x21.shape)
-        # x25_mul = torch.mul(x25[:,0:Q5*nch_out5,:,:,:],x25[:,Q5*nch_out5:2*Q5*nch_out5,:,:,:])
-        # x25_add = torch.zeros_like(x15)
-        # for q in range(Q5):
-        #     x25_add = torch.add(x25_add, x25_mul[:,(q*nch_out5):((q*nch_out5)+(nch_out5)),:,:,:])
-        # x25_add = self.bn25(x25_add)
-        # x = self.pool5(torch.add(x15, x25_add))
-        # # x = torch.add(x15, x25_add)
+        Q5 = 2
+        nch_out5 = 256
+        x15 = self.conv15(x)
+        x15 = self.bn15(x15)
+        # print('x11: ', x11.shape)
+        x25 = self.conv25(x)
+        # print('x21: ', x21.shape)
+        x25_mul = torch.mul(x25[:,0:Q5*nch_out5,:,:,:],x25[:,Q5*nch_out5:2*Q5*nch_out5,:,:,:])
+        x25_add = torch.zeros_like(x15)
+        for q in range(Q5):
+            x25_add = torch.add(x25_add, x25_mul[:,(q*nch_out5):((q*nch_out5)+(nch_out5)),:,:,:])
+        x25_add = self.bn25(x25_add)
+        x = self.pool5(torch.add(x15, x25_add))
+        # x = torch.add(x15, x25_add)
 
 
 
 
-        # print('x: ', x.shape) 
+        print('x: ', x.shape) 
 
-#         x = x.view(-1, 25088)
-        # x = self.relu(self.fc6(x))
+        x = x.view(-1, 12544)
+#         x = self.relu(self.fc6(x))
 #         x = self.dropout(x)
-        # x = self.relu(self.fc7(x))
-        # x = self.dropout(x)
+#         x = self.relu(self.fc7(x))
+#         x = self.dropout(x)
 
-#         logits = self.fc8(x)
+        logits = self.fc8(x)
 
         return x
  
@@ -230,12 +279,3 @@ def get_1x_lr_params(model):
 #         for k in b[j].parameters():
 #             if k.requires_grad:
 #                 yield k
-
-
-
-if __name__ == "__main__":
-    inputs = torch.rand(1, 3, 16, 112, 112)
-    net = C3D(num_classes=101, pretrained=True)
-
-    outputs = net.forward(inputs)
-    print(outputs.size())

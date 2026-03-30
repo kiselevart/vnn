@@ -6,10 +6,10 @@ from network.cifar.vnn_cifar import VNN_CIFAR
 from network.cifar_ortho.res_vnn_ortho import ResVNN_Ortho_CIFAR
 
 # Legacy video models (vnn_rgb, vnn_fusion)
-from network.video import (
-    vnn_fusion_highQ,
-    vnn_rgb_of_highQ,
+from vnn.network.video import (
+    vnn_rgb_of_highQv2,
 )
+from network.video import vnn_fusion_highQ, vnn_rgb_of_highQ
 from network.video.established_models import R2Plus1DNet, R3DNet
 
 # Higher-order video models
@@ -20,6 +20,7 @@ from network.video_higher_order import (
     lvn_laguerre_rgb, lvn_laguerre_fusion,
     lvn_monomial_rgb, lvn_monomial_fusion,
 )
+from vnn.network.video import vnn_fusion_highQv2
 
 
 def get_model(args, device):
@@ -49,10 +50,10 @@ def get_model(args, device):
             class VideoVNN(nn.Module):
                 def __init__(self, num_classes):
                     super().__init__()
-                    self.backbone = vnn_rgb_of_highQ.VNN(
+                    self.backbone = vnn_rgb_of_highQv2.VNN(
                         num_classes=num_classes, num_ch=3, pretrained=False
                     )
-                    self.head = vnn_fusion_highQ.VNN_F(
+                    self.head = vnn_fusion_highQv2.VNN_F(
                         num_classes=num_classes, num_ch=96, pretrained=False
                     )
 
@@ -62,7 +63,7 @@ def get_model(args, device):
 
                 def get_1x_lr_params(self):
                     return list(
-                        vnn_rgb_of_highQ.get_1x_lr_params(self.backbone)
+                        vnn_rgb_of_highQv2.get_1x_lr_params(self.backbone)
                     ) + list(self.head.parameters())
 
             net = VideoVNN(num_classes=args.num_classes)
@@ -70,6 +71,39 @@ def get_model(args, device):
         elif args.model == "vnn_fusion":
             # Legacy: RGB + Flow streams
             class VideoVNNFusion(nn.Module):
+                def __init__(self, num_classes):
+                    super().__init__()
+                    self.model_rgb = vnn_rgb_of_highQv2.VNN(
+                        num_classes=num_classes, num_ch=3, pretrained=False
+                    )
+                    self.model_of = vnn_rgb_of_highQv2.VNN(
+                        num_classes=num_classes, num_ch=2, pretrained=False
+                    )
+                    self.model_fuse = vnn_fusion_highQv2.VNN_F(
+                        num_classes=num_classes, num_ch=192, pretrained=False
+                    )
+
+                def forward(self, x):
+                    rgb, flow = x
+                    out_rgb = self.model_rgb(rgb)
+                    out_of = self.model_of(flow)
+                    out_fuse = self.model_fuse(torch.cat((out_rgb, out_of), 1))
+                    return out_fuse
+
+                def get_1x_lr_params(self):
+                    p = []
+                    p += list(vnn_rgb_of_highQv2.get_1x_lr_params(self.model_rgb))
+                    p += list(vnn_rgb_of_highQv2.get_1x_lr_params(self.model_of))
+                    p += list(vnn_fusion_highQv2.get_1x_lr_params(self.model_fuse))
+                    return p
+
+                def get_10x_lr_params(self):
+                    return list(vnn_fusion_highQv2.get_10x_lr_params(self.model_fuse))
+
+            net = VideoVNNFusion(num_classes=args.num_classes)
+
+        elif args.model == "vnn_fusion_orig":
+            class VideoVNNFusionOrig(nn.Module):
                 def __init__(self, num_classes):
                     super().__init__()
                     self.model_rgb = vnn_rgb_of_highQ.VNN(
@@ -86,20 +120,9 @@ def get_model(args, device):
                     rgb, flow = x
                     out_rgb = self.model_rgb(rgb)
                     out_of = self.model_of(flow)
-                    out_fuse = self.model_fuse(torch.cat((out_rgb, out_of), 1))
-                    return out_fuse
+                    return self.model_fuse(torch.cat((out_rgb, out_of), 1))
 
-                def get_1x_lr_params(self):
-                    p = []
-                    p += list(vnn_rgb_of_highQ.get_1x_lr_params(self.model_rgb))
-                    p += list(vnn_rgb_of_highQ.get_1x_lr_params(self.model_of))
-                    p += list(vnn_fusion_highQ.get_1x_lr_params(self.model_fuse))
-                    return p
-
-                def get_10x_lr_params(self):
-                    return list(vnn_fusion_highQ.get_10x_lr_params(self.model_fuse))
-
-            net = VideoVNNFusion(num_classes=args.num_classes)
+            net = VideoVNNFusionOrig(num_classes=args.num_classes)
 
         elif args.model == "vnn_rgb_ho":
             net = VNNRgbHO(num_classes=args.num_classes, cubic_mode=args.cubic_mode,
