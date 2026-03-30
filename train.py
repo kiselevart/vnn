@@ -40,6 +40,7 @@ def parse_args():
     # Logging & System
     parser.add_argument("--num_workers", type=int, default=16)
     parser.add_argument("--device", type=str, default="auto", choices=["auto", "cuda", "mps", "cpu"])
+    parser.add_argument("--no_amp", action="store_true", help="Disable AMP (float16). Use for models without output clamping.")
     parser.add_argument("--resume", type=str, default=None)
     parser.add_argument("--run_name", type=str, required=True)
     parser.add_argument("--test_only", action="store_true", help="Only run evaluation on the test set")
@@ -69,7 +70,7 @@ class Trainer:
         self._setup_optimizer(args)
         
         # Mixed Precision Setup
-        self.amp_enabled = (self.device.type == "cuda")
+        self.amp_enabled = (self.device.type == "cuda") and not args.no_amp
         self.scaler = GradScaler(device="cuda") if self.amp_enabled else None
         
         # Numerical Stability & Parameter Tracking
