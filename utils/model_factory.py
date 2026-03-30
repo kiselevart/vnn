@@ -6,7 +6,7 @@ from network.cifar.vnn_cifar import VNN_CIFAR
 from network.cifar_ortho.res_vnn_ortho import ResVNN_Ortho_CIFAR
 
 # Legacy video models (vnn_rgb, vnn_fusion)
-from vnn.network.video import (
+from network.video import (
     vnn_rgb_of_highQv2,
 )
 from network.video import vnn_fusion_highQ, vnn_rgb_of_highQ
@@ -20,7 +20,8 @@ from network.video_higher_order import (
     lvn_laguerre_rgb, lvn_laguerre_fusion,
     lvn_monomial_rgb, lvn_monomial_fusion,
 )
-from vnn.network.video import vnn_fusion_highQv2
+
+from network.video import vnn_fusion_highQv2
 
 
 def get_model(args, device):
