@@ -217,17 +217,16 @@ class LVNBackbone(nn.Module):
 
 class LVNHead(nn.Module):
     def __init__(self, num_classes: int, num_ch: int = 96,
-                 interaction: str = 'signed', use_cubic: bool = True,
-                 clip_len: int = 16):
+                 interaction: str = 'signed', use_cubic: bool = True):
         super().__init__()
         self.block = LaguerreBlock3D(num_ch, 256, Q=2, Qc=2, stride=2,
                                      interaction=interaction, use_cubic=use_cubic,
                                      use_shortcut=True)
-        fc_features = 256 * (clip_len // 16) * 7 * 7
-        self.classifier = ClassifierHead(fc_features, num_classes)
+        self.gap = nn.AdaptiveAvgPool3d(1)
+        self.classifier = ClassifierHead(256, num_classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.classifier(self.block(x))
+        return self.classifier(self.gap(self.block(x)))
 
     def get_1x_lr_params(self):
         skip = {id(p) for p in self.classifier.fc.parameters()}
@@ -243,12 +242,11 @@ class LVNHead(nn.Module):
 
 class LVNRgb(nn.Module):
     def __init__(self, num_classes: int, interaction: str = 'signed', use_cubic: bool = True,
-                 clip_len: int = 16):
+                 clip_len: int = 16):  # clip_len kept for API compat
         super().__init__()
         self.backbone = LVNBackbone(num_ch=3, interaction=interaction, use_cubic=use_cubic)
         self.head     = LVNHead(num_classes=num_classes, num_ch=96,
-                                interaction=interaction, use_cubic=use_cubic,
-                                clip_len=clip_len)
+                                interaction=interaction, use_cubic=use_cubic)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.head(self.backbone(x))
@@ -275,8 +273,7 @@ class LVNFusion(nn.Module):
         self.model_of  = LVNBackbone(num_ch=2, interaction=interaction, use_cubic=use_cubic)
         self.cross_bn  = nn.BatchNorm3d(96)
         self.head      = LVNHead(num_classes=num_classes, num_ch=288,
-                                 interaction=interaction, use_cubic=use_cubic,
-                                 clip_len=clip_len)
+                                 interaction=interaction, use_cubic=use_cubic)
         self.cross_abs_max = 0.0
 
     def forward(self, x):
