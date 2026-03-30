@@ -295,11 +295,38 @@ class MultiKernelBlock3D(nn.Module):
         return self.pool(out)
 
 
+class TemporalAttentionPool(nn.Module):
+    """Spatial GAP + learned temporal attention pooling.
+
+    1. Spatial average pool over H × W  →  [B, C, T]
+    2. Linear scorer: one scalar weight per frame  →  softmax over T
+    3. Weighted sum over T  →  [B, C]
+
+    The scorer is a single Linear(C → 1); the softmax ensures weights sum to 1
+    so the output magnitude stays in the same range regardless of clip length.
+    """
+
+    def __init__(self, channels: int):
+        super().__init__()
+        self.spatial_gap = nn.AdaptiveAvgPool3d((None, 1, 1))  # pool H, W; keep T
+        self.scorer = nn.Linear(channels, 1, bias=True)
+        nn.init.zeros_(self.scorer.weight)
+        nn.init.zeros_(self.scorer.bias)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: [B, C, T, H, W]
+        x = self.spatial_gap(x).squeeze(-1).squeeze(-1)  # [B, C, T]
+        # scores: [B, T, 1] → softmax over T
+        scores = torch.softmax(self.scorer(x.permute(0, 2, 1)), dim=1)  # [B, T, 1]
+        # weighted sum: [B, C, T] * [B, 1, T] → [B, C]
+        return (x * scores.permute(0, 2, 1)).sum(dim=2)
+
+
 class ClassifierHead(nn.Module):
-    """Flatten → Dropout → FC classifier.
+    """[B, C] → Dropout → FC classifier.
 
     Args:
-        fc_features: Number of features after flatten.
+        fc_features: Number of input features (channels after pooling).
         num_classes: Number of output classes.
         dropout: Dropout probability (default 0.5).
     """

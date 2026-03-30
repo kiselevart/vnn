@@ -41,7 +41,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .volterra_blocks import ClassifierHead
+from .volterra_blocks import ClassifierHead, TemporalAttentionPool
 from .lvn_blocks import lvn_signed, soft_clamp
 
 
@@ -332,11 +332,11 @@ class LaguerreHead(nn.Module):
             num_ch, 256, Q=2, kernel_size=3, N_lag=N_lag, alpha=alpha,
             stride=2, use_shortcut=True, use_laguerre_basis=use_laguerre_basis,
         )
-        self.gap = nn.AdaptiveAvgPool3d(1)
+        self.pool = TemporalAttentionPool(256)
         self.classifier = ClassifierHead(256, num_classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.classifier(self.gap(self.block(x)))
+        return self.classifier(self.pool(self.block(x)))
 
     def get_1x_lr_params(self):
         skip = {id(p) for p in self.classifier.fc.parameters()}

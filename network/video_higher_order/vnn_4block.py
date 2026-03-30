@@ -11,7 +11,7 @@ Classes:
 import torch
 import torch.nn as nn
 
-from .volterra_blocks import MultiKernelBlock3D, VolterraBlock3D, ClassifierHead
+from .volterra_blocks import MultiKernelBlock3D, VolterraBlock3D, ClassifierHead, TemporalAttentionPool
 
 
 # ---------------------------------------------------------------------------
@@ -103,12 +103,12 @@ class FusionHead(nn.Module):
             use_cubic=use_cubic, cubic_mode=cubic_mode,
             use_shortcut=True, gate_quadratic=True,
         )
-        self.gap = nn.AdaptiveAvgPool3d(1)
+        self.pool = TemporalAttentionPool(256)
         self.classifier = ClassifierHead(256, num_classes)
 
     def forward(self, x):
         x = self.block1(x)
-        return self.classifier(self.gap(x))
+        return self.classifier(self.pool(x))
 
     def get_1x_lr_params(self):
         """Returns all parameters except the final classifier FC layer."""

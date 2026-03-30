@@ -23,7 +23,7 @@ Models exported:
 import torch
 import torch.nn as nn
 
-from .volterra_blocks import ClassifierHead, init_vnn_weights
+from .volterra_blocks import ClassifierHead, TemporalAttentionPool, init_vnn_weights
 
 
 # ---------------------------------------------------------------------------
@@ -222,11 +222,11 @@ class LVNHead(nn.Module):
         self.block = LaguerreBlock3D(num_ch, 256, Q=2, Qc=2, stride=2,
                                      interaction=interaction, use_cubic=use_cubic,
                                      use_shortcut=True)
-        self.gap = nn.AdaptiveAvgPool3d(1)
+        self.pool = TemporalAttentionPool(256)
         self.classifier = ClassifierHead(256, num_classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.classifier(self.gap(self.block(x)))
+        return self.classifier(self.pool(self.block(x)))
 
     def get_1x_lr_params(self):
         skip = {id(p) for p in self.classifier.fc.parameters()}
