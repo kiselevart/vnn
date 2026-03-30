@@ -217,12 +217,14 @@ class LVNBackbone(nn.Module):
 
 class LVNHead(nn.Module):
     def __init__(self, num_classes: int, num_ch: int = 96,
-                 interaction: str = 'signed', use_cubic: bool = True):
+                 interaction: str = 'signed', use_cubic: bool = True,
+                 clip_len: int = 16):
         super().__init__()
         self.block = LaguerreBlock3D(num_ch, 256, Q=2, Qc=2, stride=2,
                                      interaction=interaction, use_cubic=use_cubic,
                                      use_shortcut=True)
-        self.classifier = ClassifierHead(12544, num_classes)
+        fc_features = 256 * (clip_len // 16) * 7 * 7
+        self.classifier = ClassifierHead(fc_features, num_classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.classifier(self.block(x))
@@ -240,11 +242,13 @@ class LVNHead(nn.Module):
 
 
 class LVNRgb(nn.Module):
-    def __init__(self, num_classes: int, interaction: str = 'signed', use_cubic: bool = True):
+    def __init__(self, num_classes: int, interaction: str = 'signed', use_cubic: bool = True,
+                 clip_len: int = 16):
         super().__init__()
         self.backbone = LVNBackbone(num_ch=3, interaction=interaction, use_cubic=use_cubic)
         self.head     = LVNHead(num_classes=num_classes, num_ch=96,
-                                interaction=interaction, use_cubic=use_cubic)
+                                interaction=interaction, use_cubic=use_cubic,
+                                clip_len=clip_len)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.head(self.backbone(x))
@@ -264,13 +268,15 @@ class LVNRgb(nn.Module):
 class LVNFusion(nn.Module):
     """Two-stream fusion. Cross term uses signed-Gaussian decay regardless of interaction mode."""
 
-    def __init__(self, num_classes: int, interaction: str = 'signed', use_cubic: bool = True):
+    def __init__(self, num_classes: int, interaction: str = 'signed', use_cubic: bool = True,
+                 clip_len: int = 16):
         super().__init__()
         self.model_rgb = LVNBackbone(num_ch=3, interaction=interaction, use_cubic=use_cubic)
         self.model_of  = LVNBackbone(num_ch=2, interaction=interaction, use_cubic=use_cubic)
         self.cross_bn  = nn.BatchNorm3d(96)
         self.head      = LVNHead(num_classes=num_classes, num_ch=288,
-                                 interaction=interaction, use_cubic=use_cubic)
+                                 interaction=interaction, use_cubic=use_cubic,
+                                 clip_len=clip_len)
         self.cross_abs_max = 0.0
 
     def forward(self, x):
@@ -297,7 +303,7 @@ class LVNFusion(nn.Module):
 
 
 # Named constructors for model_factory
-def lvn_rgb_gauss(num_classes: int)   -> LVNRgb:    return LVNRgb(num_classes, 'gauss')
-def lvn_rgb_signed(num_classes: int)  -> LVNRgb:    return LVNRgb(num_classes, 'signed')
-def lvn_fusion_gauss(num_classes: int) -> LVNFusion: return LVNFusion(num_classes, 'gauss')
-def lvn_fusion_signed(num_classes: int)-> LVNFusion: return LVNFusion(num_classes, 'signed')
+def lvn_rgb_gauss(num_classes: int, clip_len: int = 16)    -> LVNRgb:    return LVNRgb(num_classes, 'gauss',   clip_len=clip_len)
+def lvn_rgb_signed(num_classes: int, clip_len: int = 16)   -> LVNRgb:    return LVNRgb(num_classes, 'signed',  clip_len=clip_len)
+def lvn_fusion_gauss(num_classes: int, clip_len: int = 16) -> LVNFusion: return LVNFusion(num_classes, 'gauss',  clip_len=clip_len)
+def lvn_fusion_signed(num_classes: int, clip_len: int = 16)-> LVNFusion: return LVNFusion(num_classes, 'signed', clip_len=clip_len)

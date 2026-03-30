@@ -177,24 +177,25 @@ def get_dataloaders(args):
 
     elif args.task == "video":
         # Dataset instantiation
+        clip_len = getattr(args, "clip_len", 16)
         train_ds = VideoDataset(
             dataset=args.dataset,
             split="train",
-            clip_len=16,
+            clip_len=clip_len,
             preprocess=False,
             augment=True,
         )
         val_ds = VideoDataset(
             dataset=args.dataset,
             split="val",
-            clip_len=16,
+            clip_len=clip_len,
             preprocess=False,
             augment=False,
         )
         test_ds = VideoDataset(
             dataset=args.dataset,
             split="test",
-            clip_len=16,
+            clip_len=clip_len,
             preprocess=False,
             augment=False,
         )

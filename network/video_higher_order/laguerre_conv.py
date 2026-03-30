@@ -166,26 +166,32 @@ class LaguerreConv3d(nn.Module):
 # ---------------------------------------------------------------------------
 
 class LaguerreVolterraBlock3D(nn.Module):
-    """Volterra block where every convolution uses a Laguerre temporal basis.
+    """Volterra block with either a Laguerre temporal basis or a free (monomial) Conv3d.
 
-    Linear path   : LaguerreConv3d(in_ch, out_ch)
-    Quadratic path: LaguerreConv3d(in_ch, 2*Q*out_ch) → lvn_signed interaction
+    Setting use_laguerre_basis=False gives a standard Conv3d with the same
+    signed interaction — the only variable between the two is the temporal
+    kernel parameterisation, making it a clean ablation target.
+
+    Linear path   : LaguerreConv3d or Conv3d (in_ch, out_ch)
+    Quadratic path: same conv type (in_ch, 2*Q*out_ch) → lvn_signed interaction
 
     Args:
-        in_ch, out_ch : Channel dimensions.
-        Q             : Quadratic rank.
-        kernel_size   : (T, H, W) or int.
-        N_lag         : Laguerre basis size (temporal DOF).  None = T (full).
-        alpha         : Laguerre time scale.
-        stride        : MaxPool3d(2) if > 1.
-        use_shortcut  : Residual 1×1 shortcut.
-        use_soft_clamp: Smooth input clamp (tanh-based).
+        in_ch, out_ch      : Channel dimensions.
+        Q                  : Quadratic rank.
+        kernel_size        : (T, H, W) or int.
+        N_lag              : Laguerre basis size. None = T (full). Ignored when
+                             use_laguerre_basis=False.
+        alpha              : Laguerre time scale.
+        stride             : MaxPool3d(2) if > 1.
+        use_shortcut       : Residual 1×1 shortcut.
+        use_soft_clamp     : Smooth input clamp (tanh-based).
+        use_laguerre_basis : If False, uses plain Conv3d (monomial baseline).
     """
 
     def __init__(self, in_ch: int, out_ch: int, Q: int = 4,
                  kernel_size=3, N_lag: int | None = None, alpha: float = 1.0,
                  stride: int = 1, use_shortcut: bool = False,
-                 use_soft_clamp: bool = True):
+                 use_soft_clamp: bool = True, use_laguerre_basis: bool = True):
         super().__init__()
         self.out_ch  = out_ch
         self.Q       = Q
@@ -196,9 +202,15 @@ class LaguerreVolterraBlock3D(nn.Module):
             kernel_size = (kernel_size,) * 3
         pad = tuple(k // 2 for k in kernel_size)
 
-        self.conv_lin  = LaguerreConv3d(in_ch, out_ch, kernel_size, N_lag, alpha, padding=pad)
+        def _make_conv(out_channels):
+            if use_laguerre_basis:
+                return LaguerreConv3d(in_ch, out_channels, kernel_size, N_lag, alpha, padding=pad)
+            else:
+                return nn.Conv3d(in_ch, out_channels, kernel_size, padding=pad)
+
+        self.conv_lin  = _make_conv(out_ch)
         self.bn_lin    = nn.BatchNorm3d(out_ch)
-        self.conv_quad = LaguerreConv3d(in_ch, 2 * Q * out_ch, kernel_size, N_lag, alpha, padding=pad)
+        self.conv_quad = _make_conv(2 * Q * out_ch)
         self.bn_quad   = nn.BatchNorm3d(out_ch)
         self.quad_gate = nn.Parameter(torch.ones(out_ch) * 1e-4)
 
@@ -209,7 +221,11 @@ class LaguerreVolterraBlock3D(nn.Module):
             )
 
         self.pool = nn.MaxPool3d(2, 2) if stride > 1 else nn.Identity()
-        # BN init (coeff already Kaiming-inited in LaguerreConv3d)
+        if not use_laguerre_basis:
+            # LaguerreConv3d self-inits; plain Conv3d needs explicit Kaiming
+            for m in self.modules():
+                if isinstance(m, nn.Conv3d):
+                    nn.init.kaiming_normal_(m.weight)
         for m in self.modules():
             if isinstance(m, nn.BatchNorm3d):
                 m.weight.data.fill_(1)
@@ -230,11 +246,12 @@ class LaguerreVolterraBlock3D(nn.Module):
 # ---------------------------------------------------------------------------
 
 class LaguerreMultiKernelBlock3D(nn.Module):
-    """Multi-scale first block using LaguerreConv3d for each kernel branch."""
+    """Multi-scale first block; use_laguerre_basis controls Conv3d vs LaguerreConv3d."""
 
     def __init__(self, in_ch: int, ch_per_kernel: int, kernels,
                  Q: int = 4, N_lag: int | None = None, alpha: float = 1.0,
-                 stride: int = 1, use_soft_clamp: bool = True):
+                 stride: int = 1, use_soft_clamp: bool = True,
+                 use_laguerre_basis: bool = True):
         super().__init__()
         self.Q = Q
         self.ch_per_kernel = ch_per_kernel
@@ -245,16 +262,24 @@ class LaguerreMultiKernelBlock3D(nn.Module):
         self.quad_convs = nn.ModuleList()
         for ks in kernels:
             pad = tuple(k // 2 for k in ks)
-            self.lin_convs.append(
-                LaguerreConv3d(in_ch, ch_per_kernel, ks, N_lag, alpha, padding=pad))
-            self.quad_convs.append(
-                LaguerreConv3d(in_ch, 2 * Q * ch_per_kernel, ks, N_lag, alpha, padding=pad))
+            if use_laguerre_basis:
+                self.lin_convs.append(
+                    LaguerreConv3d(in_ch, ch_per_kernel, ks, N_lag, alpha, padding=pad))
+                self.quad_convs.append(
+                    LaguerreConv3d(in_ch, 2 * Q * ch_per_kernel, ks, N_lag, alpha, padding=pad))
+            else:
+                self.lin_convs.append(nn.Conv3d(in_ch, ch_per_kernel, ks, padding=pad))
+                self.quad_convs.append(nn.Conv3d(in_ch, 2 * Q * ch_per_kernel, ks, padding=pad))
 
         self.bn_lin    = nn.BatchNorm3d(self.out_ch)
         self.bn_quad   = nn.BatchNorm3d(self.out_ch)
         self.quad_gate = nn.Parameter(torch.ones(self.out_ch) * 1e-4)
         self.pool      = nn.MaxPool3d(2, 2) if stride > 1 else nn.Identity()
 
+        if not use_laguerre_basis:
+            for m in self.modules():
+                if isinstance(m, nn.Conv3d):
+                    nn.init.kaiming_normal_(m.weight)
         for m in self.modules():
             if isinstance(m, nn.BatchNorm3d):
                 m.weight.data.fill_(1)
@@ -281,25 +306,18 @@ class LaguerreBackbone(nn.Module):
     Output: [B, 96, T/8, H/8, W/8]  (same as LVNBackbone)
     """
 
-    def __init__(self, num_ch: int = 3, N_lag: int | None = None, alpha: float = 1.0):
+    def __init__(self, num_ch: int = 3, N_lag: int | None = None, alpha: float = 1.0,
+                 use_laguerre_basis: bool = True):
         super().__init__()
+        kw = dict(N_lag=N_lag, alpha=alpha, use_laguerre_basis=use_laguerre_basis)
         self.block1 = LaguerreMultiKernelBlock3D(
             num_ch, ch_per_kernel=8,
             kernels=[(5, 5, 5), (3, 3, 3), (1, 1, 1)],
-            Q=4, N_lag=N_lag, alpha=alpha, stride=2,
+            Q=4, stride=2, **kw,
         )
-        self.block2 = LaguerreVolterraBlock3D(
-            24, 32, Q=4, kernel_size=3, N_lag=N_lag, alpha=alpha,
-            stride=2, use_shortcut=True,
-        )
-        self.block3 = LaguerreVolterraBlock3D(
-            32, 64, Q=4, kernel_size=3, N_lag=N_lag, alpha=alpha,
-            use_shortcut=True,
-        )
-        self.block4 = LaguerreVolterraBlock3D(
-            64, 96, Q=4, kernel_size=3, N_lag=N_lag, alpha=alpha,
-            stride=2, use_shortcut=True,
-        )
+        self.block2 = LaguerreVolterraBlock3D(24, 32, Q=4, kernel_size=3, stride=2, use_shortcut=True, **kw)
+        self.block3 = LaguerreVolterraBlock3D(32, 64, Q=4, kernel_size=3, use_shortcut=True, **kw)
+        self.block4 = LaguerreVolterraBlock3D(64, 96, Q=4, kernel_size=3, stride=2, use_shortcut=True, **kw)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.block4(self.block3(self.block2(self.block1(x))))
@@ -307,13 +325,15 @@ class LaguerreBackbone(nn.Module):
 
 class LaguerreHead(nn.Module):
     def __init__(self, num_classes: int, num_ch: int = 96,
-                 N_lag: int | None = None, alpha: float = 1.0):
+                 N_lag: int | None = None, alpha: float = 1.0,
+                 clip_len: int = 16, use_laguerre_basis: bool = True):
         super().__init__()
         self.block = LaguerreVolterraBlock3D(
             num_ch, 256, Q=2, kernel_size=3, N_lag=N_lag, alpha=alpha,
-            stride=2, use_shortcut=True,
+            stride=2, use_shortcut=True, use_laguerre_basis=use_laguerre_basis,
         )
-        self.classifier = ClassifierHead(12544, num_classes)
+        fc_features = 256 * (clip_len // 16) * 7 * 7
+        self.classifier = ClassifierHead(fc_features, num_classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.classifier(self.block(x))
@@ -331,10 +351,12 @@ class LaguerreHead(nn.Module):
 
 
 class LaguerreRgb(nn.Module):
-    def __init__(self, num_classes: int, N_lag: int | None = None, alpha: float = 1.0):
+    def __init__(self, num_classes: int, N_lag: int | None = None, alpha: float = 1.0,
+                 clip_len: int = 16, use_laguerre_basis: bool = True):
         super().__init__()
-        self.backbone = LaguerreBackbone(num_ch=3, N_lag=N_lag, alpha=alpha)
-        self.head     = LaguerreHead(num_classes=num_classes, N_lag=N_lag, alpha=alpha)
+        kw = dict(N_lag=N_lag, alpha=alpha, use_laguerre_basis=use_laguerre_basis)
+        self.backbone = LaguerreBackbone(num_ch=3, **kw)
+        self.head     = LaguerreHead(num_classes=num_classes, clip_len=clip_len, **kw)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.head(self.backbone(x))
@@ -354,13 +376,15 @@ class LaguerreRgb(nn.Module):
 class LaguFusion(nn.Module):
     """Two-stream Laguerre-VNN fusion.  Cross term uses signed-Gaussian decay."""
 
-    def __init__(self, num_classes: int, N_lag: int | None = None, alpha: float = 1.0):
+    def __init__(self, num_classes: int, N_lag: int | None = None, alpha: float = 1.0,
+                 clip_len: int = 16, use_laguerre_basis: bool = True):
         super().__init__()
-        self.model_rgb = LaguerreBackbone(num_ch=3, N_lag=N_lag, alpha=alpha)
-        self.model_of  = LaguerreBackbone(num_ch=2, N_lag=N_lag, alpha=alpha)
+        kw = dict(N_lag=N_lag, alpha=alpha, use_laguerre_basis=use_laguerre_basis)
+        self.model_rgb = LaguerreBackbone(num_ch=3, **kw)
+        self.model_of  = LaguerreBackbone(num_ch=2, **kw)
         self.cross_bn  = nn.BatchNorm3d(96)
         self.head      = LaguerreHead(num_classes=num_classes, num_ch=288,
-                                      N_lag=N_lag, alpha=alpha)
+                                      clip_len=clip_len, **kw)
         self.cross_abs_max = 0.0
 
     def forward(self, x):
@@ -386,8 +410,18 @@ class LaguFusion(nn.Module):
 
 
 # Named constructors for model_factory
-def lvn_laguerre_rgb(num_classes: int) -> LaguerreRgb:
-    return LaguerreRgb(num_classes)
+def lvn_laguerre_rgb(num_classes: int, clip_len: int = 16,
+                     n_lag: int | None = None) -> LaguerreRgb:
+    return LaguerreRgb(num_classes, N_lag=n_lag, clip_len=clip_len, use_laguerre_basis=True)
 
-def lvn_laguerre_fusion(num_classes: int) -> LaguFusion:
-    return LaguFusion(num_classes)
+def lvn_laguerre_fusion(num_classes: int, clip_len: int = 16,
+                        n_lag: int | None = None) -> LaguFusion:
+    return LaguFusion(num_classes, N_lag=n_lag, clip_len=clip_len, use_laguerre_basis=True)
+
+def lvn_monomial_rgb(num_classes: int, clip_len: int = 16) -> LaguerreRgb:
+    """Identical to lvn_laguerre_rgb but uses free Conv3d instead of LaguerreConv3d.
+    Direct ablation: only the temporal basis differs."""
+    return LaguerreRgb(num_classes, clip_len=clip_len, use_laguerre_basis=False)
+
+def lvn_monomial_fusion(num_classes: int, clip_len: int = 16) -> LaguFusion:
+    return LaguFusion(num_classes, clip_len=clip_len, use_laguerre_basis=False)

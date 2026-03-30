@@ -19,6 +19,7 @@ from .laguerre_conv import (
     LaguerreConv3d,
     LaguerreVolterraBlock3D,
     lvn_laguerre_rgb, lvn_laguerre_fusion,
+    lvn_monomial_rgb, lvn_monomial_fusion,
 )
 
 __all__ = [
@@ -37,4 +38,5 @@ __all__ = [
     # Proper Laguerre-basis models
     "LaguerreConv3d", "LaguerreVolterraBlock3D",
     "lvn_laguerre_rgb", "lvn_laguerre_fusion",
+    "lvn_monomial_rgb", "lvn_monomial_fusion",
 ]

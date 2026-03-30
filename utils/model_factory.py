@@ -17,6 +17,7 @@ from network.video_higher_order import (
     lvn_rgb_gauss, lvn_rgb_signed,
     lvn_fusion_gauss, lvn_fusion_signed,
     lvn_laguerre_rgb, lvn_laguerre_fusion,
+    lvn_monomial_rgb, lvn_monomial_fusion,
 )
 
 
@@ -41,6 +42,7 @@ def get_model(args, device):
             raise ValueError(f"Unknown CIFAR model: {args.model}")
 
     elif args.task == "video":
+        clip_len = getattr(args, "clip_len", 16)
         if args.model == "vnn_rgb":
             # Legacy: RGB Backbone -> Classifier
             class VideoVNN(nn.Module):
@@ -100,30 +102,38 @@ def get_model(args, device):
 
         elif args.model == "vnn_rgb_ho":
             net = VNNRgbHO(num_classes=args.num_classes, cubic_mode=args.cubic_mode,
-                           use_cubic=not args.disable_cubic)
+                           use_cubic=not args.disable_cubic, clip_len=clip_len)
 
         elif args.model == "vnn_fusion_ho":
             net = VNNFusionHO(num_classes=args.num_classes, cubic_mode=args.cubic_mode,
-                              use_cubic=not args.disable_cubic)
+                              use_cubic=not args.disable_cubic, clip_len=clip_len)
 
         # --- Laguerre VNN ablations ---
         elif args.model == "lvn_rgb_gauss":
-            net = lvn_rgb_gauss(num_classes=args.num_classes)
+            net = lvn_rgb_gauss(num_classes=args.num_classes, clip_len=clip_len)
 
         elif args.model == "lvn_rgb_signed":
-            net = lvn_rgb_signed(num_classes=args.num_classes)
+            net = lvn_rgb_signed(num_classes=args.num_classes, clip_len=clip_len)
 
         elif args.model == "lvn_fusion_gauss":
-            net = lvn_fusion_gauss(num_classes=args.num_classes)
+            net = lvn_fusion_gauss(num_classes=args.num_classes, clip_len=clip_len)
 
         elif args.model == "lvn_fusion_signed":
-            net = lvn_fusion_signed(num_classes=args.num_classes)
+            net = lvn_fusion_signed(num_classes=args.num_classes, clip_len=clip_len)
 
         elif args.model == "lvn_laguerre_rgb":
-            net = lvn_laguerre_rgb(num_classes=args.num_classes)
+            n_lag = getattr(args, "n_lag", None)
+            net = lvn_laguerre_rgb(num_classes=args.num_classes, clip_len=clip_len, n_lag=n_lag)
 
         elif args.model == "lvn_laguerre_fusion":
-            net = lvn_laguerre_fusion(num_classes=args.num_classes)
+            n_lag = getattr(args, "n_lag", None)
+            net = lvn_laguerre_fusion(num_classes=args.num_classes, clip_len=clip_len, n_lag=n_lag)
+
+        elif args.model == "lvn_monomial_rgb":
+            net = lvn_monomial_rgb(num_classes=args.num_classes, clip_len=clip_len)
+
+        elif args.model == "lvn_monomial_fusion":
+            net = lvn_monomial_fusion(num_classes=args.num_classes, clip_len=clip_len)
 
         else:
             raise ValueError(f"Unknown Video model: {args.model}")

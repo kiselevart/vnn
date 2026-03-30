@@ -29,6 +29,10 @@ def parse_args():
     parser.add_argument("--weight_decay", type=float, default=0.01)
     parser.add_argument("--label_smoothing", type=float, default=0.05)
     parser.add_argument("--Q", type=int, default=2)
+    parser.add_argument("--clip_len", type=int, default=16,
+                        help="Number of frames per clip. Must be a multiple of 16.")
+    parser.add_argument("--n_lag", type=int, default=None,
+                        help="Laguerre basis size for LaguerreConv3d. None = full (= kernel T dim).")
     parser.add_argument("--disable_cubic", action="store_true")
     parser.add_argument("--cubic_mode", type=str, default="symmetric",
                         choices=["symmetric", "general"])
