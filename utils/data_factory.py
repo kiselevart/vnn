@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader, Dataset
 
 # Project Imports
 from dataloaders.dataset import VideoDataset
+from dataloaders.timeseries_dataset import TSDataset, load_ucr_dataset
 
 
 class FlowDatasetWrapper(Dataset):
@@ -229,6 +230,53 @@ def get_dataloaders(args):
             num_workers=args.num_workers,
             pin_memory=pin_memory,
             **worker_kwargs,
+        )
+
+    elif args.task == "timeseries":
+        ucr_root = os.environ.get("UCR_ROOT", "./data/ucr")
+        X_train, y_train, X_test, y_test, num_classes, in_ch = load_ucr_dataset(
+            args.dataset, root=ucr_root
+        )
+        # Write back so model_factory can use the correct values.
+        args.num_classes = num_classes
+        if args.in_ch is None:
+            args.in_ch = in_ch
+
+        val_split = getattr(args, "val_split", 0.1)
+        rng = np.random.default_rng(getattr(args, "seed", 42))
+
+        # Stratified split: sample val_split fraction from each class independently
+        # so every class is represented in val regardless of dataset size.
+        train_idx, val_idx = [], []
+        for cls in np.unique(y_train):
+            cls_idx = np.where(y_train == cls)[0]
+            cls_idx = rng.permutation(cls_idx)
+            n_val_cls = max(1, int(len(cls_idx) * val_split))
+            val_idx.extend(cls_idx[:n_val_cls].tolist())
+            train_idx.extend(cls_idx[n_val_cls:].tolist())
+        train_idx = np.array(train_idx)
+        val_idx   = np.array(val_idx)
+        print(f"  split: {len(train_idx)} train / {len(val_idx)} val "
+              f"(val acc granularity: {100/len(val_idx):.1f}%)")
+
+        jitter = getattr(args, "jitter_sigma", 0.03)
+        train_ds = TSDataset(X_train[train_idx], y_train[train_idx],
+                             augment=True, jitter_sigma=jitter)
+        val_ds   = TSDataset(X_train[val_idx],   y_train[val_idx],
+                             augment=False)
+        test_ds  = TSDataset(X_test, y_test, augment=False)
+
+        loaders["train"] = DataLoader(
+            train_ds, batch_size=args.batch_size, shuffle=True,
+            num_workers=args.num_workers, pin_memory=pin_memory, **worker_kwargs,
+        )
+        loaders["val"] = DataLoader(
+            val_ds, batch_size=args.batch_size, shuffle=False,
+            num_workers=args.num_workers, pin_memory=pin_memory, **worker_kwargs,
+        )
+        loaders["test"] = DataLoader(
+            test_ds, batch_size=args.batch_size, shuffle=False,
+            num_workers=args.num_workers, pin_memory=pin_memory, **worker_kwargs,
         )
 
     return loaders

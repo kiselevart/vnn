@@ -22,6 +22,7 @@ from network.video_higher_order import (
 )
 
 from network.video import vnn_fusion_highQv2
+from network.timeseries import VNN1D, LaguerreVNN1D
 
 
 def get_model(args, device):
@@ -168,6 +169,38 @@ def get_model(args, device):
 
         else:
             raise ValueError(f"Unknown Video model: {args.model}")
+
+    elif args.task == "timeseries":
+        in_ch = getattr(args, "in_ch", 1)
+        if args.model == "vnn_1d":
+            net = VNN1D(
+                num_classes=args.num_classes,
+                in_ch=in_ch,
+                base_ch=getattr(args, "base_ch", 8),
+                Q=getattr(args, "Q", 2),
+                Qc=getattr(args, "Qc", 1),
+                cubic_mode=getattr(args, "cubic_mode", "symmetric"),
+                use_cubic=not getattr(args, "disable_cubic", False),
+            )
+        elif args.model == "laguerre_vnn_1d":
+            net = LaguerreVNN1D(
+                num_classes=args.num_classes,
+                in_ch=in_ch,
+                base_ch=getattr(args, "base_ch", 8),
+                poly_degrees=getattr(args, "poly_degrees", None),
+                alpha=getattr(args, "alpha", 1.0),
+            )
+        elif args.model in ("fcn", "resnet1d", "inceptiontime"):
+            try:
+                from tsai.models.FCN import FCN
+                from tsai.models.ResNet import ResNet
+                from tsai.models.InceptionTime import InceptionTime
+            except ImportError as e:
+                raise ImportError("Install tsai for baseline models:  pip install tsai") from e
+            _tsai = {"fcn": FCN, "resnet1d": ResNet, "inceptiontime": InceptionTime}
+            net = _tsai[args.model](c_in=in_ch, c_out=args.num_classes)
+        else:
+            raise ValueError(f"Unknown timeseries model: {args.model}")
 
     else:
         raise ValueError(f"Unknown task: {args.task}")

@@ -4,7 +4,6 @@ import contextlib
 import os
 import time
 from datetime import datetime
-from typing import Any
 
 import torch
 import torch.nn as nn
@@ -19,7 +18,10 @@ def parse_args():
     parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter)
     
     # Core Training Args
-    parser.add_argument("--dataset", type=str, required=True, choices=["cifar10", "ucf10", "ucf101", "hmdb51", "ucf11"])
+    parser.add_argument("--dataset", type=str, required=True,
+                        help="Dataset name: cifar10 | ucf101 | hmdb51 | ucf10 | ucf11 | <UCR/UEA dataset name>")
+    parser.add_argument("--task", type=str, default=None, choices=["cifar", "video", "timeseries"],
+                        help="Task type. Auto-detected from --dataset if not set.")
     parser.add_argument("--model", type=str, required=True)
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--batch_size", type=int, default=32)
@@ -36,6 +38,22 @@ def parse_args():
     parser.add_argument("--disable_cubic", action="store_true")
     parser.add_argument("--cubic_mode", type=str, default="symmetric",
                         choices=["symmetric", "general"])
+    parser.add_argument("--in_ch", type=int, default=None,
+                        help="Input channels for timeseries models (auto-detected from dataset if not set).")
+    parser.add_argument("--base_ch", type=int, default=8,
+                        help="Base channel width for vnn_1d. Channels per block = 3/4/8/12 × base_ch.")
+    parser.add_argument("--Qc", type=int, default=1,
+                        help="Cubic rank for vnn_1d (default 1).")
+    parser.add_argument("--poly_degrees", type=int, nargs="+", default=None,
+                        help="Laguerre polynomial degrees for laguerre_vnn_1d, e.g. --poly_degrees 2 3. "
+                             "Defaults to [2, 3] (quad+cubic equivalent).")
+    parser.add_argument("--alpha", type=float, default=1.0,
+                        help="Softplus scale for laguerre_vnn_1d. Lower values (e.g. 0.5) help "
+                             "stability when using degrees >= 4.")
+    parser.add_argument("--jitter_sigma", type=float, default=0.03,
+                        help="Gaussian noise std for timeseries jitter augmentation.")
+    parser.add_argument("--wandb_group", type=str, default=None,
+                        help="W&B group name to cluster related runs (e.g. a benchmark sweep).")
 
     # Logging & System
     parser.add_argument("--num_workers", type=int, default=16)
@@ -48,9 +66,16 @@ def parse_args():
     args = parser.parse_args()
     
     # Auto-determine Task and Classes
-    args.task = "cifar" if args.dataset == "cifar10" else "video"
-    ds_map = {"cifar10": 10, "ucf11": 11, "ucf101": 101, "hmdb51": 51, "ucf10": 10}
-    args.num_classes = ds_map.get(args.dataset, 101)
+    _video_ds   = {"ucf10", "ucf11", "ucf101", "hmdb51"}
+    _ds_classes = {"cifar10": 10, "ucf11": 11, "ucf101": 101, "hmdb51": 51, "ucf10": 10}
+    if args.task is None:
+        if args.dataset == "cifar10":
+            args.task = "cifar"
+        elif args.dataset in _video_ds:
+            args.task = "video"
+        else:
+            args.task = "timeseries"
+    args.num_classes = _ds_classes.get(args.dataset, None)  # None for UCR (set later from data)
     
     return args
 
@@ -63,9 +88,9 @@ class Trainer:
         self._setup_device(args.device)
         self._setup_logging(args)
         
-        # Initialize Model, Data, and Criterion
-        self.model = get_model(args, self.device)
+        # Load data first — for timeseries, this sets args.num_classes and args.in_ch.
         self.loaders = get_dataloaders(args)
+        self.model = get_model(args, self.device)
         self.criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing).to(self.device)
         self._setup_optimizer(args)
         
@@ -115,14 +140,15 @@ class Trainer:
         init_kwargs = {
             "name": self.run_name,
             "dir": self.out_dir,
-            "config": vars(args)
+            "config": vars(args),
+            "group": getattr(args, "wandb_group", None),
         }
-        
+
         self.wandb.init(**init_kwargs)
         atexit.register(lambda: self.wandb.finish() if self.wandb else None)
 
     def _setup_optimizer(self, args):
-        if args.task == "video":
+        if args.task in ("video", "timeseries"):
             get_1x = getattr(self.model, "get_1x_lr_params", None)
             get_10x = getattr(self.model, "get_10x_lr_params", None)
 
@@ -167,13 +193,17 @@ class Trainer:
         stats = {}
         idx = 0
         for module in self.model.modules():
-            has_quad = hasattr(module, 'quad_gate')
+            has_quad  = hasattr(module, 'quad_gate')
             has_cubic = hasattr(module, 'cubic_gate')
+            has_poly  = hasattr(module, 'poly_gates') and hasattr(module, 'poly_degrees')
             if has_quad:
-                stats[f"gates/b{idx}/quad"] = module.quad_gate.abs().mean().item()
+                stats[f"gates/b{idx}/quad"] = module.quad_gate.abs().mean().item()  # type: ignore[union-attr]
             if has_cubic:
-                stats[f"gates/b{idx}/cubic"] = module.cubic_gate.abs().mean().item()
-            if has_quad or has_cubic:
+                stats[f"gates/b{idx}/cubic"] = module.cubic_gate.abs().mean().item()  # type: ignore[union-attr]
+            if has_poly:
+                for gate, deg in zip(module.poly_gates, module.poly_degrees):  # type: ignore[union-attr]
+                    stats[f"gates/b{idx}/lag{deg}"] = gate.abs().mean().item()
+            if has_quad or has_cubic or has_poly:
                 idx += 1
         return stats
 

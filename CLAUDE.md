@@ -43,11 +43,11 @@ There is no test suite — validation is done via training runs with different c
 The primary video model family lives in `network/video_higher_order/`:
 
 ```
-volterra_ops.py       — math primitives: volterra_quadratic, volterra_cubic_symmetric, volterra_cubic_general
-blocks.py             — VolterraBlock3D (linear + quadratic ± cubic paths + residual + gate), MultiKernelBlock3D
-backbone_4block.py    — 4-block 3D backbone (output: [B, 96, T/8, H/8, W/8])
-backbone_7block.py    — deeper 7-block variant
-fusion_head.py        — single VolterraBlock3D + ClassifierHead; applies 10× LR to final FC layer
+volterra_blocks.py    — math primitives (volterra_quadratic/cubic) + VolterraBlock3D, MultiKernelBlock3D, ClassifierHead
+vnn_4block.py         — 4-block 3D backbone + vnn_fusion_ho end-to-end model (output: [B, 96, T/8, H/8, W/8])
+vnn_7block.py         — deeper 7-block variant
+lvn_blocks.py         — stable interaction functions (lvn_gauss, lvn_signed) + LVNBackbone/LVNHead/LVNFusion
+laguerre_conv.py      — LaguerreConv3d (Laguerre temporal basis) + LaguerreBackbone/LaguerreHead/LaguFusion
 ```
 
 `vnn_fusion_ho` (the main model) runs two backbone streams (RGB + optical flow), then fuses them through `fusion_head.py`.
