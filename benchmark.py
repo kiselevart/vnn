@@ -323,6 +323,8 @@ def parse_args() -> argparse.Namespace:
                    default=os.environ.get("UCR_ROOT", "./data/ucr"))
     p.add_argument("--download-only", action="store_true",
                    help="Download missing datasets and exit.")
+    p.add_argument("--wandb_group", type=str, default=None,
+                   help="W&B group name for all runs in this benchmark invocation.")
     p.add_argument("--no-wandb",  action="store_true", dest="no_wandb",
                    help="Run W&B in offline mode.")
     return p.parse_args()
@@ -355,8 +357,8 @@ def main() -> None:
         print("Downloads complete.")
         return
 
-    # W&B group: one group per benchmark invocation
-    group = f"bench_{datetime.now().strftime('%m%d-%H%M')}"
+    # W&B group: prefer explicit --wandb_group, fall back to auto-generated name
+    group = args.wandb_group or f"bench_{datetime.now().strftime('%m%d-%H%M')}"
     print(f"\nBenchmark group: {group}  ({len(configs)} datasets)")
 
     results: list[Result] = []
