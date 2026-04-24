@@ -1,0 +1,17 @@
+=== A3_vnn_cubic_general
+CMD: CUDA_VISIBLE_DEVICES=2 python benchmark.py --model vnn_1d --suite quick --wandb_group vnn_ablation --no-wandb --cubic_mode general
+START: 2026-04-24 14:22:17
+================================================================
+usage: benchmark.py [-h] [--suite {quick,standard,full}]
+                    [--datasets NAME [NAME ...]] [--epochs EPOCHS]
+                    [--base_ch BASE_CH] [--lr LR] [--model MODEL] [--Q Q]
+                    [--Qc QC] [--poly_degrees POLY_DEGREES [POLY_DEGREES ...]]
+                    [--alpha ALPHA] [--batch_size BATCH_SIZE]
+                    [--num_workers NUM_WORKERS] [--disable_cubic]
+                    [--ucr_root UCR_ROOT] [--download-only]
+                    [--wandb_group WANDB_GROUP] [--no-wandb]
+benchmark.py: error: unrecognized arguments: --cubic_mode general
+
+================================================================
+CMD:   CUDA_VISIBLE_DEVICES=2 python benchmark.py --model vnn_1d --suite quick --wandb_group vnn_ablation --no-wandb --cubic_mode general
+END:   2026-04-24 14:22:17  exit=2
