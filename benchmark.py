@@ -162,7 +162,7 @@ def run_dataset(cfg: DSConfig, args: argparse.Namespace,
 
     env = os.environ.copy()
     if args.no_wandb:
-        env["WANDB_MODE"] = "offline"
+        env["WANDB_MODE"] = "disabled"
     if args.ucr_root:
         env["UCR_ROOT"] = args.ucr_root
 
@@ -226,7 +226,7 @@ def run_dataset_tee(cfg: DSConfig, args: argparse.Namespace,
 
     env = os.environ.copy()
     if args.no_wandb:
-        env["WANDB_MODE"] = "offline"
+        env["WANDB_MODE"] = "disabled"
     if args.ucr_root:
         env["UCR_ROOT"] = args.ucr_root
 
