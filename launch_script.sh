@@ -7,9 +7,20 @@
 # GPU_IDS can be a single GPU (e.g. 0) or multiple (e.g. 0,1)
 
 JOBS=(
-  "0 | python train.py --lr 1e-4 --epochs 50 --dataset cifar10"
-  "1 | python train.py --lr 5e-4 --epochs 50 --dataset cifar10"
-  "2,3 | python train.py --lr 1e-3 --epochs 100 --dataset imagenet"
+  "3 | python benchmark.py --model vnn_1d --suite quick"
+  "3 | python benchmark.py --model vnn_1d --suite quick --disable_cubic"
+  "3 | python benchmark.py --model vnn_1d --suite quick --cubic_mode general"
+  "3 | python benchmark.py --model vnn_1d --suite quick --Q 4"
+  "3 | python benchmark.py --model vnn_1d --suite quick --base_ch 12"
+
+  "4 | python benchmark.py --model laguerre_vnn_1d --suite quick --poly_degrees 1"
+  "4 | python benchmark.py --model laguerre_vnn_1d --suite quick --poly_degrees 2"
+  "4 | python benchmark.py --model laguerre_vnn_1d --suite quick --poly_degrees 3"
+  "4 | python benchmark.py --model laguerre_vnn_1d --suite quick --poly_degrees 1 2"
+  "4 | python benchmark.py --model laguerre_vnn_1d --suite quick --poly_degrees 2 3"
+  "4 | python benchmark.py --model laguerre_vnn_1d --suite quick --poly_degrees 1 2 3"
+  "4 | python benchmark.py --model laguerre_vnn_1d --suite quick --poly_degrees 2 3 4"
+  "4 | python benchmark.py --model laguerre_vnn_1d --suite quick --poly_degrees 1 2 3 4"
 )
 
 # ── Config ────────────────────────────────────────────────────────────────────
