@@ -157,6 +157,8 @@ def run_dataset(cfg: DSConfig, args: argparse.Namespace,
     ]
     if args.disable_cubic:
         cmd.append("--disable_cubic")
+    if args.cubic_mode != "symmetric":
+        cmd += ["--cubic_mode", args.cubic_mode]
     if args.poly_degrees:
         cmd += ["--poly_degrees"] + [str(d) for d in args.poly_degrees]
 
@@ -221,6 +223,8 @@ def run_dataset_tee(cfg: DSConfig, args: argparse.Namespace,
     ]
     if args.disable_cubic:
         cmd.append("--disable_cubic")
+    if args.cubic_mode != "symmetric":
+        cmd += ["--cubic_mode", args.cubic_mode]
     if args.poly_degrees:
         cmd += ["--poly_degrees"] + [str(d) for d in args.poly_degrees]
 
@@ -319,6 +323,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--batch_size",type=int,   default=32)
     p.add_argument("--num_workers",type=int,  default=4)
     p.add_argument("--disable_cubic", action="store_true")
+    p.add_argument("--cubic_mode", type=str, default="symmetric",
+                   choices=["symmetric", "general"],
+                   help="Cubic interaction mode for vnn_1d.")
     p.add_argument("--ucr_root",  type=str,
                    default=os.environ.get("UCR_ROOT", "./data/ucr"))
     p.add_argument("--download-only", action="store_true",

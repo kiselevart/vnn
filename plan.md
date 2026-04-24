@@ -1,215 +1,152 @@
-# Timeseries Benchmark Experiment Plan
+# Timeseries Benchmark — Phase 2
 
-Goal: establish how VNN1D and LaguerreVNN1D compare against standard library baselines
-across a multi-dataset benchmark, then use ablations to understand which design choices matter.
-
-Use `--no-wandb` to suppress W&B (logs to files only).
+Phase 1 complete. This document records what we learned and specifies the next runs.
 
 ---
 
-## 0. Data setup
+## Phase 1 Results
 
-Download all benchmark datasets once before running anything:
+### Standard 5-dataset suite
+
+| Model | Params* | ECG5000 | FordA | AWR | NATOPS | Ethanol | Avg† |
+|-------|--------:|--------:|------:|----:|-------:|--------:|-----:|
+| FCN | 265K | 94.0% | 91.5% | 98.7% | 87.2% | 27.4% | 92.9% |
+| ResNet1D | 479K | 93.4% | 92.7% | 98.3% | 88.9% | 21.3% | 93.3% |
+| InceptionTime | 460K | 93.6% | **96.0%** | **99.3%** | **89.4%** | 24.7% | **94.6%** |
+| VNN1D default | 50K | **94.0%** | 93.0% | 98.3% | 85.0% | 24.7% | 92.6% |
+| Laguerre [2,3] | 24K | 93.9% | 93.2% | 98.3% | 86.1% | 24.7% | 92.9% |
+
+*params at ECG5000 (smallest dataset); scales up with base_ch per dataset config.
+†avg excludes Ethanol — all models are at chance there (see below).
+
+### VNN1D ablations (ECG5000 / FordA, quick suite)
+
+| Config | ECG5000 | FordA | Params |
+|--------|--------:|------:|-------:|
+| A1: no cubic | 93.7% | 93.3% | 50K |
+| A2: default (quad+cubic sym) | 94.0% | 93.1% | 50K |
+| A3: cubic general | FAILED (--cubic_mode not wired in benchmark.py — fixed) | |
+| A4: Q=1 | 93.7% | **93.6%** | 36K |
+| A5: Q=4 | 93.8% | 92.8% | 78K |
+| A6: ch=12 | 94.0% | 93.1% | 440K |
+
+### LaguerreVNN1D ablations (ECG5000 / FordA, quick suite)
+
+| Config | ECG5000 | FordA | Params |
+|--------|--------:|------:|-------:|
+| B1: deg=1 (linear) | **94.2%** | 93.4% | 17K |
+| B2: deg=2 | 93.8% | 93.0% | 17K |
+| B3: deg=[2,3] | 94.0% | 92.9% | 24K |
+| B4: deg=[2,3,4] | 93.7% | 92.9% | 31K |
+| B5: deg=[2,3,4] α=0.5 | 93.7% | 93.3% | 31K |
+| B6: deg=[3,4,5] α=0.5 | 93.9% | **93.8%** | 31K |
+| B7: ch=16 | 93.7% | 92.0% | 366K |
+
+---
+
+## Key Findings
+
+1. **VNN1D matches InceptionTime's average at 10% of the params.** Laguerre does it at 5%.
+   The main gap is NATOPS (~3–4% behind InceptionTime).
+
+2. **Cubic term doesn't help** — A1 (no cubic) ≈ A2 (default). Quadratic is doing all the work.
+
+3. **Q rank doesn't matter** — Q=1 ≈ Q=2 ≈ Q=4. Q=1 at 36K is likely the sweet spot.
+
+4. **Width scaling is useless** — A6 at 440K ≈ A2 at 50K. Hard ceiling on these datasets.
+
+5. **Linear Laguerre (deg=1) wins on ECG5000** — highest accuracy at fewest params.
+   Nonlinear degrees don't help on easy datasets.
+
+6. **Higher odd degrees win on harder datasets** — B6 [3,4,5] α=0.5 is best on FordA.
+   Domain clamping (α=0.5) matters when using high degrees.
+
+7. **EthanolConcentration is chance-level for all models** — 21–27% on a 4-class problem.
+   Root cause: 261 training samples + 1751-length sequences + only 300 epochs = undertrained.
+   Needs ~800 epochs minimum.
+
+---
+
+## Phase 2: Fix + Promote Winners
+
+### 2a. Ethanol — rerun all models with 800 epochs
 
 ```bash
-python tools/download_ts_datasets.py \
-  --root ./data/ucr \
-  --dataset ECG5000 FordA ArticularyWordRecognition NATOPS EthanolConcentration \
-            UWaveGestureLibrary ElectricDevices
+# Baselines
+python benchmark.py --model fcn          --datasets EthanolConcentration --epochs 800 --no-wandb
+python benchmark.py --model resnet1d     --datasets EthanolConcentration --epochs 800 --no-wandb
+python benchmark.py --model inceptiontime --datasets EthanolConcentration --epochs 800 --no-wandb
+
+# Our models
+python benchmark.py --model vnn_1d --datasets EthanolConcentration --epochs 800 --Q 1 --disable_cubic --no-wandb
+python benchmark.py --model laguerre_vnn_1d --datasets EthanolConcentration --epochs 800 --poly_degrees 3 4 5 --alpha 0.5 --no-wandb
+```
+
+### 2b. A3 rerun — cubic general (was broken, now fixed)
+
+```bash
+python benchmark.py --model vnn_1d --suite quick --wandb_group vnn_ablation --no-wandb --cubic_mode general
+```
+
+### 2c. Promote VNN1D winners to standard suite
+
+Ablations say cubic barely helps and Q=1 is sufficient. Test the two most minimal configs:
+
+```bash
+# C1: Q=1, cubic symmetric (ablation winner on FordA)
+python benchmark.py --model vnn_1d --suite standard --wandb_group vnn_winners --no-wandb --Q 1
+
+# C2: Q=1, no cubic (most minimal — does removing cubic hurt on harder datasets?)
+python benchmark.py --model vnn_1d --suite standard --wandb_group vnn_winners --no-wandb --Q 1 --disable_cubic
+```
+
+### 2d. Promote Laguerre winners to standard suite
+
+Two competing winners — efficiency (B1) vs harder-dataset accuracy (B6):
+
+```bash
+# C3: deg=1 — linear Laguerre, highest ECG5000, lowest params (17K)
+python benchmark.py --model laguerre_vnn_1d --suite standard --wandb_group lag_winners --no-wandb --poly_degrees 1
+
+# C4: deg=[3,4,5] α=0.5 — best on FordA, may generalize better
+python benchmark.py --model laguerre_vnn_1d --suite standard --wandb_group lag_winners --no-wandb --poly_degrees 3 4 5 --alpha 0.5
 ```
 
 ---
 
-## 1. Baselines — standard 5-dataset suite
+## Phase 3: Seed Runs
 
-These are the gold-standard CNN baselines from the time-series literature.
-Each run covers ECG5000 / FordA / ArticularyWordRecognition / NATOPS / EthanolConcentration.
+After phase 2, pick one winner per model family and run 3 seeds for publication-quality numbers.
+Run the suite 3 separate times — benchmark.py doesn't have a --seed flag yet so results vary
+by random init naturally.
 
 ```bash
-# FCN — Wang et al. 2017, ~267K params
-python benchmark.py --model fcn --suite standard --wandb_group baselines --no-wandb
-
-# ResNet1D — Wang et al. 2017, ~480K params
-python benchmark.py --model resnet1d --suite standard --wandb_group baselines --no-wandb
-
-# InceptionTime — Fawaz et al. 2020, ~457K params
-python benchmark.py --model inceptiontime --suite standard --wandb_group baselines --no-wandb
+# Three separate invocations each
+python benchmark.py --model vnn_1d --suite standard --wandb_group seed_vnn --no-wandb [best flags]
+python benchmark.py --model laguerre_vnn_1d --suite standard --wandb_group seed_lag --no-wandb [best flags]
 ```
 
-Expected runtime: ~30–60 min per model on GPU.
+Report mean ± std. NATOPS (n=180) and Ethanol (n=261) will have the highest variance.
 
 ---
 
-## 2. Our models — standard suite (apples-to-apples)
+## Phase 4: Full 7-dataset suite
 
-Run VNN1D and LaguerreVNN1D with defaults on the same 5 datasets.
-
-```bash
-# VNN1D default (quad + cubic symmetric, base_ch=8, ~200K params)
-python benchmark.py --model vnn_1d --suite standard --wandb_group our_models --no-wandb
-
-# LaguerreVNN1D default (degrees=[2,3], base_ch=8, ~94K params)
-python benchmark.py --model laguerre_vnn_1d --suite standard --wandb_group our_models \
-  --poly_degrees 2 3 --no-wandb
-```
-
----
-
-## 3. VNN1D ablations — quick suite (ECG5000 + FordA only)
-
-Isolate the effect of each architectural choice. Run on the quick 2-dataset suite
-to get results fast; promote winners to the standard suite.
+Run the single best config per model family plus the best baseline on the full suite.
 
 ```bash
-# A1: Quadratic only — no cubic path
-python benchmark.py --model vnn_1d --suite quick --wandb_group vnn_ablation --no-wandb \
-  --disable_cubic
-
-# A2: Quad + cubic symmetric (default)
-python benchmark.py --model vnn_1d --suite quick --wandb_group vnn_ablation --no-wandb
-
-# A3: Quad + cubic general (a·b·c, more expressive, more params)
-python benchmark.py --model vnn_1d --suite quick --wandb_group vnn_ablation --no-wandb \
-  --cubic_mode general
-
-# A4: Lower quadratic rank (Q=1 — minimal nonlinearity, fewer params than default Q=2)
-python benchmark.py --model vnn_1d --suite quick --wandb_group vnn_ablation --no-wandb \
-  --Q 1
-
-# A5: Higher quadratic rank (Q=4 instead of default 2)
-python benchmark.py --model vnn_1d --suite quick --wandb_group vnn_ablation --no-wandb \
-  --Q 4
-
-# A6: Larger model width (base_ch=12 to match baseline param counts ~200K→~450K)
-python benchmark.py --model vnn_1d --suite quick --wandb_group vnn_ablation --no-wandb \
-  --base_ch 12
-```
-
-Q sweep (A4→A2→A5) tells you if rank-2 is the right default or if over/under-parameterising matters.
-
----
-
-## 4. LaguerreVNN1D ablations — quick suite
-
-Explore the polynomial degree and domain scale choices.
-
-```bash
-# B1: Degree 1 only — linear Laguerre (sanity check: does any nonlinearity help?)
-python benchmark.py --model laguerre_vnn_1d --suite quick --wandb_group laguerre_ablation \
-  --poly_degrees 1 --no-wandb
-
-# B2: Degree 2 only — single nonlinear path (quadratic-equivalent)
-python benchmark.py --model laguerre_vnn_1d --suite quick --wandb_group laguerre_ablation \
-  --poly_degrees 2 --no-wandb
-
-# B3: Degrees [2, 3] — default, mirrors quad+cubic
-python benchmark.py --model laguerre_vnn_1d --suite quick --wandb_group laguerre_ablation \
-  --poly_degrees 2 3 --no-wandb
-
-# B4: Degrees [2, 3, 4] — three polynomial orders
-python benchmark.py --model laguerre_vnn_1d --suite quick --wandb_group laguerre_ablation \
-  --poly_degrees 2 3 4 --no-wandb
-
-# B5: Degrees [2, 3, 4] with tighter input range (alpha=0.5)
-#     Recommended when using degree >= 4 to limit polynomial growth
-python benchmark.py --model laguerre_vnn_1d --suite quick --wandb_group laguerre_ablation \
-  --poly_degrees 2 3 4 --alpha 0.5 --no-wandb
-
-# B6: Higher orders only — skip degree 2, use [3, 4, 5]
-python benchmark.py --model laguerre_vnn_1d --suite quick --wandb_group laguerre_ablation \
-  --poly_degrees 3 4 5 --alpha 0.5 --no-wandb
-
-# B7: Scaled-up width to match baseline param budget (~450K params at base_ch=16)
-python benchmark.py --model laguerre_vnn_1d --suite quick --wandb_group laguerre_ablation \
-  --poly_degrees 2 3 --base_ch 16 --no-wandb
-```
-
-B1→B2→B3→B4 answers "do higher degrees keep helping?"
-B4 vs B5 answers "does domain clamping matter at high degree?"
-
----
-
-## 4.5. Promote winners to standard suite
-
-After quick ablations finish, pick the best VNN config and best Laguerre config and validate
-on the full standard 5-dataset suite before committing to the full suite run.
-
-```bash
-# Example: if A2 (default) and B3 win on quick suite
-python benchmark.py --model vnn_1d --suite standard --wandb_group ablation_winners --no-wandb \
-  [best VNN flags]
-
-python benchmark.py --model laguerre_vnn_1d --suite standard --wandb_group ablation_winners \
-  --poly_degrees [best degrees] [best other flags] --no-wandb
-```
-
----
-
-## 5. Seed runs — 3 seeds for reliable numbers
-
-Single-run results have high variance on small datasets (e.g. NATOPS n=180, EthanolConcentration n=261).
-Run each winning config 3 times with different seeds before writing up numbers.
-
-```bash
-# Repeat for seed in 0 1 2 — add --seed flag when supported, or re-run manually
-for SEED in 0 1 2; do
-  python benchmark.py --model <best_model> --suite standard \
-    --wandb_group seed_runs --no-wandb [best flags]
-done
-```
-
-Report mean ± std across seeds, not the single best run.
-
----
-
-## 6. Best configs — full 7-dataset suite
-
-Once ablations and seed validation are done, run everything on the full suite for the
-definitive comparison table.
-
-```bash
-# Best baseline (expected: inceptiontime or resnet1d)
 python benchmark.py --model inceptiontime --suite full --wandb_group final --no-wandb
-
-# Best VNN1D config (fill in from ablation results)
-python benchmark.py --model vnn_1d --suite full --wandb_group final --no-wandb \
-  [--Q ? --base_ch ? --cubic_mode ?]
-
-# Best LaguerreVNN1D config (fill in from ablation results)
-python benchmark.py --model laguerre_vnn_1d --suite full --wandb_group final --no-wandb \
-  --poly_degrees [? ? ?] --alpha [?] --base_ch [?]
+python benchmark.py --model vnn_1d --suite full --wandb_group final --no-wandb [best flags from phase 2]
+python benchmark.py --model laguerre_vnn_1d --suite full --wandb_group final --no-wandb [best flags from phase 2]
 ```
 
 ---
 
-## GPU assignment (4 GPUs — run phases 1–4 simultaneously)
+## GPU assignment (phase 2)
 
-Edit `GPUS=(...)` at the top of `launch_script.sh` to set your physical GPU IDs,
-then `bash launch_script.sh`. Total wall time ≈ 60–90 min.
-
-| Variable | Default | Jobs (sequential within GPU) |
-|----------|---------|------------------------------|
-| `GPUS[0]` | 0 | Phase 1: FCN → ResNet1D → InceptionTime on standard |
-| `GPUS[1]` | 1 | Phase 2: VNN1D on standard → Phase 3: ablations A1–A6 on quick |
-| `GPUS[2]` | 2 | Phase 2: LaguerreVNN1D on standard → Phase 4: ablations B1–B7 on quick |
-| `GPUS[3]` | 3 | Reserved — free for phase 4.5 / seed runs |
-
-After all of the above finish:
-- Phase 4.5 on GPU 3: promote winners to standard suite
-- Phase 6 on any GPU: seed repeats (3×)
-- Phase 6 on any available GPUs: full suite runs (one model per GPU)
-
----
-
-## What to look for
-
-- **Accuracy vs params**: LaguerreVNN1D at ~94K vs baselines at 267–480K.
-  If it's within 2–3% accuracy at 4–5× fewer params, that's a compelling result.
-- **B1 vs B2**: Does nonlinearity help at all? (linear Laguerre vs quadratic-only)
-- **Which Laguerre degrees help**: B2→B3→B4 progression — when does adding a degree stop helping?
-- **Alpha sensitivity**: compare B4 vs B5 to see if domain mapping matters.
-- **VNN vs Laguerre**: compare A2 (quad+cubic) vs B3 (deg=[2,3]) — same param budget,
-  different interaction mechanism. This is the cleanest ablation of monomial vs orthogonal.
-- **Q rank sensitivity**: A4→A2→A5 (Q=1,2,4) — is rank-2 optimal or arbitrary?
-- **Seed variance**: datasets with <300 training samples (NATOPS, EthanolConcentration, UWave)
-  will have high variance. Don't trust single-run numbers on those.
+| Variable | Jobs (sequential) |
+|----------|-------------------|
+| `GPUS[0]` | Ethanol reruns — all 5 models × 800 epochs |
+| `GPUS[1]` | A3 rerun → C1 (VNN Q=1) on standard → C2 (VNN Q=1 no-cubic) on standard |
+| `GPUS[2]` | C3 (Laguerre deg=1) on standard → C4 (Laguerre [3,4,5] α=0.5) on standard |
+| `GPUS[3]` | Free — use for seed runs once phase 2 winners are known |

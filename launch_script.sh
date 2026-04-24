@@ -1,13 +1,13 @@
 #!/bin/bash
-# Phases 1–4 simultaneous launch across 4 GPUs.
-# Edit GPUS to set which physical GPUs to use.
+# Phase 2: Fix + promote winners — see plan.md for context.
+# Edit GPUS to set your physical GPU IDs.
 
 GPUS=(0 1 2 3)   # ← set these to your actual GPU IDs
 
-GA=${GPUS[0]}   # baselines (standard suite)
-GB=${GPUS[1]}   # VNN1D standard + ablations
-GC=${GPUS[2]}   # LaguerreVNN1D standard + ablations
-GD=${GPUS[3]}   # reserved: phase 4.5 / seed runs (not launched here)
+GA=${GPUS[0]}   # Ethanol reruns (all models, 800 epochs)
+GB=${GPUS[1]}   # A3 rerun + VNN1D winner candidates on standard
+GC=${GPUS[2]}   # Laguerre winner candidates on standard
+GD=${GPUS[3]}   # free — seed runs once phase 2 winners are known
 
 LOG_DIR="./logs/$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$LOG_DIR"
@@ -39,43 +39,44 @@ run_job() {
   return $status
 }
 
-# ── GPU A: baselines on standard suite (plan section 1) ────────────────────
+# ── GPU A: Ethanol reruns with 800 epochs (plan section 2a) ────────────────
 gpu_a_jobs() {
-  local G=baselines
-  run_job "1_fcn"           $GA python benchmark.py --model fcn           --suite standard --wandb_group $G --no-wandb
-  run_job "1_resnet1d"      $GA python benchmark.py --model resnet1d      --suite standard --wandb_group $G --no-wandb
-  run_job "1_inceptiontime" $GA python benchmark.py --model inceptiontime  --suite standard --wandb_group $G --no-wandb
+  local E="--datasets EthanolConcentration --epochs 800 --no-wandb"
+  run_job "eth_fcn"          $GA python benchmark.py --model fcn           $E
+  run_job "eth_resnet1d"     $GA python benchmark.py --model resnet1d      $E
+  run_job "eth_inceptiontime" $GA python benchmark.py --model inceptiontime $E
+  run_job "eth_vnn_Q1_nocubic" $GA python benchmark.py --model vnn_1d $E --Q 1 --disable_cubic
+  run_job "eth_lag_B6"       $GA python benchmark.py --model laguerre_vnn_1d $E --poly_degrees 3 4 5 --alpha 0.5
 }
 
-# ── GPU B: VNN1D standard then ablations (plan sections 2 + 3) ─────────────
+# ── GPU B: A3 rerun + VNN1D winners on standard (plan sections 2b + 2c) ────
 gpu_b_jobs() {
-  run_job "2_vnn_standard" $GB python benchmark.py --model vnn_1d --suite standard --wandb_group our_models --no-wandb
+  # A3: was broken (--cubic_mode not parsed by benchmark.py) — now fixed
+  run_job "A3_vnn_cubic_general" $GB python benchmark.py --model vnn_1d --suite quick \
+    --wandb_group vnn_ablation --no-wandb --cubic_mode general
 
-  local G=vnn_ablation
-  run_job "A1_vnn_no_cubic"      $GB python benchmark.py --model vnn_1d --suite quick --wandb_group $G --no-wandb --disable_cubic
-  run_job "A2_vnn_default"       $GB python benchmark.py --model vnn_1d --suite quick --wandb_group $G --no-wandb
-  run_job "A3_vnn_cubic_general" $GB python benchmark.py --model vnn_1d --suite quick --wandb_group $G --no-wandb --cubic_mode general
-  run_job "A4_vnn_Q1"            $GB python benchmark.py --model vnn_1d --suite quick --wandb_group $G --no-wandb --Q 1
-  run_job "A5_vnn_Q4"            $GB python benchmark.py --model vnn_1d --suite quick --wandb_group $G --no-wandb --Q 4
-  run_job "A6_vnn_ch12"          $GB python benchmark.py --model vnn_1d --suite quick --wandb_group $G --no-wandb --base_ch 12
+  # C1: Q=1, cubic symmetric — ablation FordA winner
+  run_job "C1_vnn_Q1_standard" $GB python benchmark.py --model vnn_1d --suite standard \
+    --wandb_group vnn_winners --no-wandb --Q 1
+
+  # C2: Q=1, no cubic — most minimal config; does dropping cubic hurt on harder datasets?
+  run_job "C2_vnn_Q1_nocubic_standard" $GB python benchmark.py --model vnn_1d --suite standard \
+    --wandb_group vnn_winners --no-wandb --Q 1 --disable_cubic
 }
 
-# ── GPU C: LaguerreVNN1D standard then ablations (plan sections 2 + 4) ─────
+# ── GPU C: Laguerre winners on standard (plan section 2d) ──────────────────
 gpu_c_jobs() {
-  run_job "2_lag_standard" $GC python benchmark.py --model laguerre_vnn_1d --suite standard --wandb_group our_models --no-wandb --poly_degrees 2 3
+  # C3: deg=1 — linear Laguerre, best ECG5000, fewest params (17K)
+  run_job "C3_lag_deg1_standard" $GC python benchmark.py --model laguerre_vnn_1d --suite standard \
+    --wandb_group lag_winners --no-wandb --poly_degrees 1
 
-  local G=laguerre_ablation
-  run_job "B1_lag_deg1"       $GC python benchmark.py --model laguerre_vnn_1d --suite quick --wandb_group $G --no-wandb --poly_degrees 1
-  run_job "B2_lag_deg2"       $GC python benchmark.py --model laguerre_vnn_1d --suite quick --wandb_group $G --no-wandb --poly_degrees 2
-  run_job "B3_lag_deg23"      $GC python benchmark.py --model laguerre_vnn_1d --suite quick --wandb_group $G --no-wandb --poly_degrees 2 3
-  run_job "B4_lag_deg234"     $GC python benchmark.py --model laguerre_vnn_1d --suite quick --wandb_group $G --no-wandb --poly_degrees 2 3 4
-  run_job "B5_lag_deg234_a05" $GC python benchmark.py --model laguerre_vnn_1d --suite quick --wandb_group $G --no-wandb --poly_degrees 2 3 4 --alpha 0.5
-  run_job "B6_lag_deg345_a05" $GC python benchmark.py --model laguerre_vnn_1d --suite quick --wandb_group $G --no-wandb --poly_degrees 3 4 5 --alpha 0.5
-  run_job "B7_lag_deg23_ch16" $GC python benchmark.py --model laguerre_vnn_1d --suite quick --wandb_group $G --no-wandb --poly_degrees 2 3 --base_ch 16
+  # C4: deg=[3,4,5] α=0.5 — best on FordA, may handle harder datasets better
+  run_job "C4_lag_B6_standard" $GC python benchmark.py --model laguerre_vnn_1d --suite standard \
+    --wandb_group lag_winners --no-wandb --poly_degrees 3 4 5 --alpha 0.5
 }
 
 # ── Launch ─────────────────────────────────────────────────────────────────
-echo "GPU assignment: baselines=$GA  VNN1D=$GB  Laguerre=$GC  free=$GD"
+echo "GPU assignment: Ethanol=$GA  VNN=$GB  Laguerre=$GC  free=$GD"
 echo "Logs: $LOG_DIR/"
 echo ""
 echo "To monitor:"
@@ -95,9 +96,9 @@ wait $PID_B; SB=$?
 wait $PID_C; SC=$?
 
 echo ""
-[ $SA -eq 0 ] && echo "✓ GPU $GA (baselines) done"       || echo "✗ GPU $GA (baselines) had failures"
-[ $SB -eq 0 ] && echo "✓ GPU $GB (VNN1D) done"           || echo "✗ GPU $GB (VNN1D) had failures"
-[ $SC -eq 0 ] && echo "✓ GPU $GC (LaguerreVNN1D) done"   || echo "✗ GPU $GC (LaguerreVNN1D) had failures"
+[ $SA -eq 0 ] && echo "✓ GPU $GA (Ethanol) done"      || echo "✗ GPU $GA (Ethanol) had failures"
+[ $SB -eq 0 ] && echo "✓ GPU $GB (VNN1D) done"        || echo "✗ GPU $GB (VNN1D) had failures"
+[ $SC -eq 0 ] && echo "✓ GPU $GC (Laguerre) done"     || echo "✗ GPU $GC (Laguerre) had failures"
 echo ""
-echo "GPU $GD is free — use it for phase 4.5 (promote winners) and seed runs."
+echo "GPU $GD is free — use it for seed runs once you've picked the phase 2 winners."
 echo "All done. Logs: $LOG_DIR/"
