@@ -27,7 +27,7 @@ for i in "${!JOBS[@]}"; do
   LOG_FILE="$LOG_DIR/job_${i}_gpu${gpus}.log"
   echo "Launching job $i on GPU(s) $gpus → $LOG_FILE"
 
-  CUDA_VISIBLE_DEVICES="$gpus" bash -c "$cmd" > "$LOG_FILE" 2>&1 &
+  CUDA_VISIBLE_DEVICES="$gpus" bash -c "$cmd; echo; echo \"--- Command: CUDA_VISIBLE_DEVICES=$gpus $cmd ---\"" > "$LOG_FILE" 2>&1 &
   PIDS+=($!)
 done
 
