@@ -51,11 +51,14 @@ STARTER_PACK = ["ECG5000", "FordA", "ArticularyWordRecognition", "NATOPS"]
 
 
 def download_dataset(name: str, root: str) -> bool:
+    import warnings
+
     try:
-        import warnings
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            from aeon.datasets import load_classification
+        # aeon >= 1.4 renamed load_classification; try the new name first.
+        try:
+            from aeon.datasets import load_dataset as _load
+        except ImportError:
+            from aeon.datasets import load_classification as _load
     except ImportError:
         print("ERROR: aeon not installed.  Run:  pip install aeon")
         sys.exit(1)
@@ -70,9 +73,10 @@ def download_dataset(name: str, root: str) -> bool:
 
     print(f"  {name}: downloading ...", flush=True)
     try:
-        # load_classification downloads and caches; extract_path is where .ts files land.
-        load_classification(name, split="TRAIN", extract_path=root)
-        load_classification(name, split="TEST",  extract_path=root)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            _load(name, split="TRAIN", extract_path=root)
+            _load(name, split="TEST",  extract_path=root)
         print(f"  {name}: done → {out_dir}")
         return True
     except Exception as e:
