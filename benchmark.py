@@ -8,8 +8,8 @@ and GPU memory are all cleanly separated between runs.
 Suites
 ------
 quick     ECG5000 + FordA                        (2 datasets, ~5 min)
-standard  5 datasets from easy to hard           (default)
-full      7 datasets                             (~60–120 min depending on GPU)
+standard  10 datasets, uni + multivariate        (~20–40 min depending on GPU)
+full      16 datasets                            (~40–80 min depending on GPU)
 
 Usage
 -----
@@ -52,23 +52,45 @@ class DSConfig:
 
 # Each entry tuned so the model is not over- or under-parameterised for the dataset.
 _STANDARD: list[DSConfig] = [
+    # ---- univariate (UCR) ----
     DSConfig("ECG5000",                  base_ch=4, epochs=150,
-             difficulty="easy",        in_ch=1, seq_len=140,  n_classes=5,  n_train=500),
+             difficulty="easy",        in_ch=1,  seq_len=140,  n_classes=5,  n_train=500),
     DSConfig("FordA",                    base_ch=4, epochs=150,
-             difficulty="medium",      in_ch=1, seq_len=500,  n_classes=2,  n_train=3601),
+             difficulty="medium",      in_ch=1,  seq_len=500,  n_classes=2,  n_train=3601),
+    DSConfig("Wafer",                    base_ch=4, epochs=150,
+             difficulty="easy",        in_ch=1,  seq_len=152,  n_classes=2,  n_train=1000),
+    # ---- multivariate (UEA) ----
     DSConfig("ArticularyWordRecognition",base_ch=8, epochs=200,
-             difficulty="medium",      in_ch=9, seq_len=144,  n_classes=25, n_train=275),
+             difficulty="medium",      in_ch=9,  seq_len=144,  n_classes=25, n_train=275),
     DSConfig("NATOPS",                   base_ch=8, epochs=200,
-             difficulty="medium",      in_ch=24,seq_len=51,   n_classes=6,  n_train=180),
-    DSConfig("EthanolConcentration",     base_ch=8, epochs=300,
-             difficulty="hard",        in_ch=3, seq_len=1751, n_classes=4,  n_train=261),
+             difficulty="medium",      in_ch=24, seq_len=51,   n_classes=6,  n_train=180),
+    DSConfig("JapaneseVowels",           base_ch=8, epochs=300,
+             difficulty="easy",        in_ch=12, seq_len=29,   n_classes=9,  n_train=270),
+    DSConfig("Epilepsy",                 base_ch=4, epochs=200,
+             difficulty="easy",        in_ch=3,  seq_len=206,  n_classes=4,  n_train=137),
+    DSConfig("BasicMotions",             base_ch=4, epochs=300,
+             difficulty="easy",        in_ch=6,  seq_len=100,  n_classes=4,  n_train=40),
+    DSConfig("CharacterTrajectories",    base_ch=8, epochs=200,
+             difficulty="medium",      in_ch=3,  seq_len=182,  n_classes=20, n_train=1422),
+    DSConfig("UWaveGestureLibrary",      base_ch=8, epochs=200,
+             difficulty="medium",      in_ch=3,  seq_len=315,  n_classes=8,  n_train=120),
 ]
 
 _FULL: list[DSConfig] = _STANDARD + [
-    DSConfig("UWaveGestureLibrary",      base_ch=8, epochs=200,
-             difficulty="medium-hard", in_ch=3, seq_len=315,  n_classes=8,  n_train=120),
+    # ---- more univariate ----
+    DSConfig("FordB",                    base_ch=4, epochs=150,
+             difficulty="medium",      in_ch=1,  seq_len=500,  n_classes=2,  n_train=3636),
     DSConfig("ElectricDevices",          base_ch=4, epochs=150,
-             difficulty="medium",      in_ch=1, seq_len=96,   n_classes=7,  n_train=8926),
+             difficulty="medium",      in_ch=1,  seq_len=96,   n_classes=7,  n_train=8926),
+    # ---- more multivariate ----
+    DSConfig("SpokenArabicDigits",       base_ch=4, epochs=150,
+             difficulty="medium",      in_ch=13, seq_len=93,   n_classes=10, n_train=6599),
+    DSConfig("Heartbeat",                base_ch=4, epochs=200,
+             difficulty="medium-hard", in_ch=61, seq_len=405,  n_classes=2,  n_train=204),
+    DSConfig("SelfRegulationSCP1",       base_ch=4, epochs=150,
+             difficulty="medium-hard", in_ch=6,  seq_len=896,  n_classes=2,  n_train=268),
+    DSConfig("HandMovementDirection",    base_ch=8, epochs=200,
+             difficulty="medium-hard", in_ch=10, seq_len=400,  n_classes=4,  n_train=160),
 ]
 
 SUITES: dict[str, list[DSConfig]] = {

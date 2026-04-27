@@ -25,18 +25,26 @@ import sys
 
 
 # Recommended datasets grouped by use case.
-# Format: (name, task, channels, length, classes, train_size, test_size)
+# Format: (name, archive, channels, length, classes, train_size, test_size)
 RECOMMENDED = {
     # --- univariate (C=1) ---
-    "ECG5000":         ("UCR", 1,  140,   5,   500,  4500),
-    "FordA":           ("UCR", 1,  500,   2,  3601,  1320),
-    "ElectricDevices": ("UCR", 1,   96,   7,  8926,  7711),
-    "Wafer":           ("UCR", 1,  152,   2,  1000,  6164),
+    "ECG5000":         ("UCR",  1,  140,   5,   500,  4500),
+    "FordA":           ("UCR",  1,  500,   2,  3601,  1320),
+    "FordB":           ("UCR",  1,  500,   2,  3636,   810),
+    "Wafer":           ("UCR",  1,  152,   2,  1000,  6164),
+    "ElectricDevices": ("UCR",  1,   96,   7,  8926,  7711),
     # --- multivariate (C>1) ---
     "ArticularyWordRecognition": ("UEA",  9, 144, 25,  275,  300),
     "NATOPS":                    ("UEA", 24,  51,  6,  180,  180),
+    "JapaneseVowels":            ("UEA", 12,  29,  9,  270,  370),
+    "Epilepsy":                  ("UEA",  3, 206,  4,  137,  138),
+    "BasicMotions":              ("UEA",  6, 100,  4,   40,   40),
+    "CharacterTrajectories":     ("UEA",  3, 182, 20, 1422, 1436),
     "UWaveGestureLibrary":       ("UEA",  3, 315,  8,  120,  320),
-    "EthanolConcentration":      ("UEA",  3, 1751, 4,  261,  263),
+    "SpokenArabicDigits":        ("UEA", 13,  93, 10, 6599, 2199),
+    "Heartbeat":                 ("UEA", 61, 405,  2,  204,  205),
+    "SelfRegulationSCP1":        ("UEA",  6, 896,  2,  268,  293),
+    "HandMovementDirection":     ("UEA", 10, 400,  4,  160,   74),
 }
 
 STARTER_PACK = ["ECG5000", "FordA", "ArticularyWordRecognition", "NATOPS"]

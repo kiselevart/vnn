@@ -1,26 +1,44 @@
 #!/bin/bash
-# Phase 2: Fix + promote winners — see plan.md for context.
-# Edit GPUS to set your physical GPU IDs.
+# Phase 2.5: Full ablation rerun on the expanded 10-dataset standard suite.
+# 18 jobs total — 4 GPUs running in parallel, ~2–3 hours wall time.
+#
+# GPU layout (edit GPUS to match your actual device IDs):
+#   GPU A — baselines (FCN / ResNet1D / InceptionTime) + VNN A6     (~140 min)
+#   GPU B — VNN ablations A1–A4                                      (~90 min)
+#   GPU C — VNN A5 + Laguerre B1–B4                                  (~110 min)
+#   GPU D — Laguerre B5–B6, D1–D3                                    (~125 min)
+#
+# Usage:
+#   bash launch_script.sh
+#   # Logs land in ./logs/<timestamp>/  — one file per job.
 
-GPUS=(0 1 2 3)   # ← set these to your actual GPU IDs
+set -euo pipefail
 
-GA=${GPUS[0]}   # Ethanol reruns (all models, 800 epochs)
-GB=${GPUS[1]}   # A3 rerun + VNN1D winner candidates on standard
-GC=${GPUS[2]}   # Laguerre winner candidates on standard
-GD=${GPUS[3]}   # free — seed runs once phase 2 winners are known
+GPUS=(0 1 6 7)
+GA=${GPUS[0]}
+GB=${GPUS[1]}
+GC=${GPUS[2]}
+GD=${GPUS[3]}
+
+WANDB_GROUP="phase25"
+SUITE_ARGS=(--suite standard --wandb_group "$WANDB_GROUP" --no-wandb)
 
 LOG_DIR="./logs/$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$LOG_DIR"
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
 run_job() {
+  # run_job <name> <gpu> <cmd...>
   local name="$1" gpu="$2"
   shift 2
   local log="$LOG_DIR/${name}.log"
-  local full_cmd="CUDA_VISIBLE_DEVICES=$gpu $*"
 
   {
     echo "=== $name"
-    echo "CMD: $full_cmd"
+    echo "CMD: CUDA_VISIBLE_DEVICES=$gpu $*"
     echo "START: $(date '+%Y-%m-%d %H:%M:%S')"
     echo "================================================================"
   } > "$log" 2>&1
@@ -31,57 +49,93 @@ run_job() {
   {
     echo ""
     echo "================================================================"
-    echo "CMD:   $full_cmd"
-    echo "END:   $(date '+%Y-%m-%d %H:%M:%S')  exit=$status"
+    echo "END: $(date '+%Y-%m-%d %H:%M:%S')  exit=$status"
   } >> "$log" 2>&1
 
-  [ $status -eq 0 ] && echo "✓ $name" || echo "✗ $name (exit $status)"
+  [ $status -eq 0 ] && echo "  ✓ $name" || echo "  ✗ $name (exit $status)"
   return $status
 }
 
-# ── GPU A: Ethanol reruns with 800 epochs (plan section 2a) ────────────────
+bench() {
+  # bench <name> <gpu> [extra benchmark.py args...]
+  local name="$1" gpu="$2"
+  shift 2
+  run_job "$name" "$gpu" python benchmark.py "${SUITE_ARGS[@]}" "$@"
+}
+
+# ---------------------------------------------------------------------------
+# Pre-flight: download all standard-suite datasets on the main process
+# so parallel GPU jobs don't race to write the same files.
+# ---------------------------------------------------------------------------
+
+echo "Downloading standard-suite datasets (skips already-present files) ..."
+python tools/download_ts_datasets.py \
+  --dataset ECG5000 FordA Wafer \
+            ArticularyWordRecognition NATOPS JapaneseVowels \
+            Epilepsy BasicMotions CharacterTrajectories UWaveGestureLibrary
+echo ""
+
+# ---------------------------------------------------------------------------
+# GPU A — Baselines + VNN A6  (4 jobs, ~140 min)
+# Large models (265–479K params) are slowest, so kept together on one GPU.
+# ---------------------------------------------------------------------------
 gpu_a_jobs() {
-  local E="--datasets EthanolConcentration --epochs 800 --no-wandb"
-  run_job "eth_fcn"          $GA python benchmark.py --model fcn           $E
-  run_job "eth_resnet1d"     $GA python benchmark.py --model resnet1d      $E
-  run_job "eth_inceptiontime" $GA python benchmark.py --model inceptiontime $E
-  run_job "eth_vnn_Q1_nocubic" $GA python benchmark.py --model vnn_1d $E --Q 1 --disable_cubic
-  run_job "eth_lag_B6"       $GA python benchmark.py --model laguerre_vnn_1d $E --poly_degrees 3 4 5 --alpha 0.5
+  echo "[GPU $GA] starting baselines + A6 ..."
+  bench "fcn"           $GA --model fcn
+  bench "resnet1d"      $GA --model resnet1d
+  bench "inceptiontime" $GA --model inceptiontime
+  bench "A6_vnn_ch12"   $GA --model vnn_1d --base_ch 12
 }
 
-# ── GPU B: A3 rerun + VNN1D winners on standard (plan sections 2b + 2c) ────
+# ---------------------------------------------------------------------------
+# GPU B — VNN1D ablations A1–A4  (4 jobs, ~90 min)
+# ---------------------------------------------------------------------------
 gpu_b_jobs() {
-  # A3: was broken (--cubic_mode not parsed by benchmark.py) — now fixed
-  run_job "A3_vnn_cubic_general" $GB python benchmark.py --model vnn_1d --suite quick \
-    --wandb_group vnn_ablation --no-wandb --cubic_mode general
-
-  # C1: Q=1, cubic symmetric — ablation FordA winner
-  run_job "C1_vnn_Q1_standard" $GB python benchmark.py --model vnn_1d --suite standard \
-    --wandb_group vnn_winners --no-wandb --Q 1
-
-  # C2: Q=1, no cubic — most minimal config; does dropping cubic hurt on harder datasets?
-  run_job "C2_vnn_Q1_nocubic_standard" $GB python benchmark.py --model vnn_1d --suite standard \
-    --wandb_group vnn_winners --no-wandb --Q 1 --disable_cubic
+  echo "[GPU $GB] starting VNN ablations A1–A4 ..."
+  bench "A1_vnn_nocubic"  $GB --model vnn_1d --disable_cubic
+  bench "A2_vnn_default"  $GB --model vnn_1d
+  bench "A3_vnn_cubicgen" $GB --model vnn_1d --cubic_mode general
+  bench "A4_vnn_Q1"       $GB --model vnn_1d --Q 1
 }
 
-# ── GPU C: Laguerre winners on standard (plan section 2d) ──────────────────
+# ---------------------------------------------------------------------------
+# GPU C — VNN A5 + Laguerre B1–B4  (5 jobs, ~110 min)
+# ---------------------------------------------------------------------------
 gpu_c_jobs() {
-  # C3: deg=1 — linear Laguerre, best ECG5000, fewest params (17K)
-  run_job "C3_lag_deg1_standard" $GC python benchmark.py --model laguerre_vnn_1d --suite standard \
-    --wandb_group lag_winners --no-wandb --poly_degrees 1
-
-  # C4: deg=[3,4,5] α=0.5 — best on FordA, may handle harder datasets better
-  run_job "C4_lag_B6_standard" $GC python benchmark.py --model laguerre_vnn_1d --suite standard \
-    --wandb_group lag_winners --no-wandb --poly_degrees 3 4 5 --alpha 0.5
+  echo "[GPU $GC] starting VNN A5 + Laguerre B1–B4 ..."
+  bench "A5_vnn_Q4"    $GC --model vnn_1d --Q 4
+  bench "B1_lag_1"     $GC --model laguerre_vnn_1d --poly_degrees 1 --alpha 1.0
+  bench "B2_lag_2"     $GC --model laguerre_vnn_1d --poly_degrees 2 --alpha 1.0
+  bench "B3_lag_23"    $GC --model laguerre_vnn_1d --poly_degrees 2 3 --alpha 1.0
+  bench "B4_lag_234"   $GC --model laguerre_vnn_1d --poly_degrees 2 3 4 --alpha 1.0
 }
 
-# ── Launch ─────────────────────────────────────────────────────────────────
-echo "GPU assignment: Ethanol=$GA  VNN=$GB  Laguerre=$GC  free=$GD"
+# ---------------------------------------------------------------------------
+# GPU D — Laguerre B5–B6, D1–D3  (5 jobs, ~125 min)
+# ---------------------------------------------------------------------------
+gpu_d_jobs() {
+  echo "[GPU $GD] starting Laguerre B5–B6 + D1–D3 ..."
+  bench "B5_lag_234_a05"  $GD --model laguerre_vnn_1d --poly_degrees 2 3 4   --alpha 0.5
+  bench "B6_lag_345_a05"  $GD --model laguerre_vnn_1d --poly_degrees 3 4 5   --alpha 0.5
+  bench "D1_lag_34_a05"   $GD --model laguerre_vnn_1d --poly_degrees 3 4     --alpha 0.5
+  bench "D2_lag_2345_a05" $GD --model laguerre_vnn_1d --poly_degrees 2 3 4 5 --alpha 0.5
+  bench "D3_lag_456_a05"  $GD --model laguerre_vnn_1d --poly_degrees 4 5 6   --alpha 0.5
+}
+
+# ---------------------------------------------------------------------------
+# Launch all GPU streams in parallel
+# ---------------------------------------------------------------------------
+echo "Phase 2.5 — 18 jobs across 4 GPUs"
+echo "  GPU $GA: baselines (FCN / ResNet1D / InceptionTime) + VNN A6"
+echo "  GPU $GB: VNN A1–A4"
+echo "  GPU $GC: VNN A5 + Laguerre B1–B4"
+echo "  GPU $GD: Laguerre B5–B6, D1–D3"
+echo "W&B group: $WANDB_GROUP"
 echo "Logs: $LOG_DIR/"
 echo ""
-echo "To monitor:"
+echo "Monitor:"
 echo "  tail -f $LOG_DIR/*.log"
-echo "  watch -n5 'ls -lh $LOG_DIR/'"
+echo "  watch -n10 'grep -rh \"✓\|✗\" $LOG_DIR/ 2>/dev/null | sort'"
 echo ""
 
 gpu_a_jobs &
@@ -90,15 +144,33 @@ gpu_b_jobs &
 PID_B=$!
 gpu_c_jobs &
 PID_C=$!
+gpu_d_jobs &
+PID_D=$!
 
 wait $PID_A; SA=$?
 wait $PID_B; SB=$?
 wait $PID_C; SC=$?
+wait $PID_D; SD=$?
+
+# ---------------------------------------------------------------------------
+# Final summary
+# ---------------------------------------------------------------------------
+echo ""
+echo "=============================== SUMMARY ==============================="
+for log in "$LOG_DIR"/*.log; do
+  name=$(basename "$log" .log)
+  if grep -q "exit=0" "$log" 2>/dev/null; then
+    echo "  ✓ $name"
+  else
+    echo "  ✗ $name"
+  fi
+done | sort
 
 echo ""
-[ $SA -eq 0 ] && echo "✓ GPU $GA (Ethanol) done"      || echo "✗ GPU $GA (Ethanol) had failures"
-[ $SB -eq 0 ] && echo "✓ GPU $GB (VNN1D) done"        || echo "✗ GPU $GB (VNN1D) had failures"
-[ $SC -eq 0 ] && echo "✓ GPU $GC (Laguerre) done"     || echo "✗ GPU $GC (Laguerre) had failures"
+[ $SA -eq 0 ] && echo "GPU $GA (baselines+A6): all done" || echo "GPU $GA (baselines+A6): had failures"
+[ $SB -eq 0 ] && echo "GPU $GB (VNN A1-A4):    all done" || echo "GPU $GB (VNN A1-A4):    had failures"
+[ $SC -eq 0 ] && echo "GPU $GC (VNN A5+Lag B): all done" || echo "GPU $GC (VNN A5+Lag B): had failures"
+[ $SD -eq 0 ] && echo "GPU $GD (Lag B5-D3):    all done" || echo "GPU $GD (Lag B5-D3):    had failures"
 echo ""
-echo "GPU $GD is free — use it for seed runs once you've picked the phase 2 winners."
-echo "All done. Logs: $LOG_DIR/"
+echo "Logs: $LOG_DIR/"
+echo "Next: fill Phase 2.5 result tables in plan.md, then pick winners for Phase 3."

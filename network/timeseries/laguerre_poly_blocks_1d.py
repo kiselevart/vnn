@@ -17,9 +17,19 @@ domain. Each degree gets a separate convolution (different linear projection of
 the input) and a small gated contribution (init 1e-4), so the model starts
 near-linear and gradually engages higher-order polynomial terms.
 
-Increasing poly_degrees adds orthogonal nonlinear modes with independent gradient
-paths — unlike monomial powers, where h1·∂(x²)/∂x = 2h1·x mixes first and
-second-order gradients.
+Three optional simplification flags (default values preserve original behaviour):
+    use_inner_clamp (bool, default True):
+        Clamp the softplus argument to [-20, 20] before scaling by alpha.
+        Safe to remove for BN-normalized inputs; disabling avoids a
+        stop-gradient discontinuity at the clamp boundary.
+    shared_proj (bool, default False):
+        Use a single shared Conv1d for all polynomial degrees instead of
+        per-degree convolutions.  A per-degree learnable scale (alpha_d) is
+        added so each degree can still adjust its polynomial range independently.
+        Reduces parameters by roughly (|degrees| - 1) × base conv cost.
+    scalar_gates (bool, default False):
+        Replace the per-channel gate g_d ∈ R^{C_out} with a single scalar
+        gate g_d ∈ R.  Saves |degrees| × (C_out - 1) parameters.
 
 Classes:
     LaguerrePolyBlock1D        — single-kernel block
@@ -54,13 +64,25 @@ def laguerre_poly(n: int, t: torch.Tensor) -> torch.Tensor:
     return L1
 
 
-def laguerre_feature(z: torch.Tensor, degree: int, alpha: float = 1.0) -> torch.Tensor:
+def laguerre_feature(z: torch.Tensor, degree: int, alpha: float = 1.0,
+                     use_inner_clamp: bool = True) -> torch.Tensor:
     """Compute L_degree(softplus(α·z)), clamped to [-50, 50].
 
     softplus(·) maps z ∈ R to (0, ∞), placing features in the Laguerre domain.
     The clamp guards against polynomial growth at large t for high degrees.
+
+    Args:
+        z:               Conv output tensor.
+        degree:          Laguerre polynomial degree.
+        alpha:           Scale applied before softplus.
+        use_inner_clamp: If True, clamp z to [-20, 20] before scaling.
+                         Set False (S1 simplification) to remove the
+                         stop-gradient discontinuity; safe when inputs are BN-normalized.
     """
-    t = F.softplus(z.clamp(-20.0, 20.0) * alpha)   # (0, ∞)
+    if use_inner_clamp:
+        t = F.softplus(z.clamp(-20.0, 20.0) * alpha)
+    else:
+        t = F.softplus(z * alpha)
     return laguerre_poly(degree, t).clamp(-50.0, 50.0)
 
 
@@ -105,45 +127,70 @@ class LaguerrePolyBlock1D(nn.Module):
     arbitrary list of polynomial degrees.
 
     Args:
-        in_ch:         Input channels.
-        out_ch:        Output channels.
-        poly_degrees:  List of Laguerre degrees, e.g. [2, 3].
-                       Or an int N → degrees [2 .. N+1].
-                       Default [2, 3] matches quad+cubic Volterra block.
-        stride:        If > 1, applies MaxPool1d(2) after summation.
-        use_shortcut:  Add residual 1×1 conv shortcut.
-        kernel_size:   Temporal convolution kernel size.
-        alpha:         Scale applied to conv output before softplus.
-                       Lower alpha keeps inputs in a tighter polynomial range,
-                       which helps stability for degree ≥ 4.
+        in_ch:            Input channels.
+        out_ch:           Output channels.
+        poly_degrees:     List of Laguerre degrees, e.g. [2, 3].
+                          Or an int N → degrees [2 .. N+1].
+                          Default [2, 3] matches quad+cubic Volterra block.
+        stride:           If > 1, applies MaxPool1d(2) after summation.
+        use_shortcut:     Add residual 1×1 conv shortcut.
+        kernel_size:      Temporal convolution kernel size.
+        alpha:            Scale applied to conv output before softplus.
+                          Lower alpha keeps inputs in a tighter polynomial range,
+                          which helps stability for degree ≥ 4.
+        use_inner_clamp:  Clamp softplus argument to [-20, 20] (default True).
+                          Disable for S1 simplification.
+        shared_proj:      Share one Conv1d across all degrees; add per-degree
+                          learnable alpha_d (default False).
+                          Enable for S2 simplification.
+        scalar_gates:     Use a single scalar gate per degree instead of a
+                          per-channel vector (default False).
+                          Enable for S3 simplification.
     """
 
     def __init__(self, in_ch: int, out_ch: int,
                  poly_degrees=None, stride: int = 1,
                  use_shortcut: bool = False, kernel_size: int = 3,
-                 alpha: float = 1.0):
+                 alpha: float = 1.0,
+                 use_inner_clamp: bool = True,
+                 shared_proj: bool = False,
+                 scalar_gates: bool = False):
         super().__init__()
         if poly_degrees is None:
             poly_degrees = [2, 3]
-        self.poly_degrees = _parse_degrees(poly_degrees)
-        self.out_ch       = out_ch
-        self.use_shortcut = use_shortcut
-        self.alpha        = alpha
+        self.poly_degrees     = _parse_degrees(poly_degrees)
+        self.out_ch           = out_ch
+        self.use_shortcut     = use_shortcut
+        self.alpha            = alpha
+        self.use_inner_clamp  = use_inner_clamp
+        self.shared_proj      = shared_proj
 
         pad = kernel_size // 2
 
         self.conv_lin = nn.Conv1d(in_ch, out_ch, kernel_size, padding=pad)
         self.bn_lin   = nn.BatchNorm1d(out_ch)
 
-        self.poly_convs = nn.ModuleList([
-            nn.Conv1d(in_ch, out_ch, kernel_size, padding=pad)
-            for _ in self.poly_degrees
-        ])
+        if shared_proj:
+            # S2: one shared conv for all degrees; per-degree learnable scale
+            self.shared_conv = nn.Conv1d(in_ch, out_ch, kernel_size, padding=pad)
+            self.poly_alphas  = nn.ParameterList([
+                nn.Parameter(torch.tensor(alpha))
+                for _ in self.poly_degrees
+            ])
+        else:
+            self.poly_convs = nn.ModuleList([
+                nn.Conv1d(in_ch, out_ch, kernel_size, padding=pad)
+                for _ in self.poly_degrees
+            ])
+
         self.poly_bns = nn.ModuleList([
             nn.BatchNorm1d(out_ch) for _ in self.poly_degrees
         ])
+
+        # S3: scalar gate (size 1) vs. default per-channel gate (size out_ch)
+        gate_size = 1 if scalar_gates else out_ch
         self.poly_gates = nn.ParameterList([
-            nn.Parameter(torch.ones(out_ch) * 1e-4)
+            nn.Parameter(torch.ones(gate_size) * 1e-4)
             for _ in self.poly_degrees
         ])
 
@@ -160,11 +207,19 @@ class LaguerrePolyBlock1D(nn.Module):
         x   = x.clamp(-50.0, 50.0)
         out = self.bn_lin(self.conv_lin(x))
 
-        for conv, bn, gate, deg in zip(
-            self.poly_convs, self.poly_bns, self.poly_gates, self.poly_degrees
-        ):
-            phi = bn(laguerre_feature(conv(x), deg, self.alpha))
-            out = out + gate.view(1, -1, 1) * phi
+        if self.shared_proj:
+            z = self.shared_conv(x)
+            for alpha_d, bn, gate, deg in zip(
+                self.poly_alphas, self.poly_bns, self.poly_gates, self.poly_degrees
+            ):
+                phi = bn(laguerre_feature(z, deg, float(alpha_d), self.use_inner_clamp))
+                out = out + gate.view(1, -1, 1) * phi
+        else:
+            for conv, bn, gate, deg in zip(
+                self.poly_convs, self.poly_bns, self.poly_gates, self.poly_degrees
+            ):
+                phi = bn(laguerre_feature(conv(x), deg, self.alpha, self.use_inner_clamp))
+                out = out + gate.view(1, -1, 1) * phi
 
         if self.use_shortcut:
             out = self.shortcut(x) + out
@@ -186,18 +241,24 @@ class MultiKernelLaguerreBlock1D(nn.Module):
     Total output channels = ch_per_kernel × len(kernels).
 
     Args:
-        in_ch:          Input channels.
-        ch_per_kernel:  Output channels per kernel branch.
-        kernels:        List of kernel sizes, e.g. [9, 5, 1].
-        poly_degrees:   Laguerre degrees or int N.  Default [2, 3].
-        stride:         If > 1, MaxPool1d(2) applied after summation.
-        use_shortcut:   Residual 1×1 shortcut.
-        alpha:          Softplus input scale.
+        in_ch:            Input channels.
+        ch_per_kernel:    Output channels per kernel branch.
+        kernels:          List of kernel sizes, e.g. [9, 5, 1].
+        poly_degrees:     Laguerre degrees or int N.  Default [2, 3].
+        stride:           If > 1, MaxPool1d(2) applied after summation.
+        use_shortcut:     Residual 1×1 shortcut.
+        alpha:            Softplus input scale.
+        use_inner_clamp:  Clamp softplus argument to [-20, 20] (default True).
+        shared_proj:      Share one Conv1d per kernel across all degrees (default False).
+        scalar_gates:     Scalar gate per degree instead of per-channel (default False).
     """
 
     def __init__(self, in_ch: int, ch_per_kernel: int, kernels,
                  poly_degrees=None, stride: int = 1,
-                 use_shortcut: bool = False, alpha: float = 1.0):
+                 use_shortcut: bool = False, alpha: float = 1.0,
+                 use_inner_clamp: bool = True,
+                 shared_proj: bool = False,
+                 scalar_gates: bool = False):
         super().__init__()
         if poly_degrees is None:
             poly_degrees = [2, 3]
@@ -206,6 +267,8 @@ class MultiKernelLaguerreBlock1D(nn.Module):
         self.out_ch        = ch_per_kernel * len(kernels)
         self.use_shortcut  = use_shortcut
         self.alpha         = alpha
+        self.use_inner_clamp = use_inner_clamp
+        self.shared_proj   = shared_proj
 
         self.lin_convs = nn.ModuleList([
             nn.Conv1d(in_ch, ch_per_kernel, ks, padding=ks // 2)
@@ -213,19 +276,33 @@ class MultiKernelLaguerreBlock1D(nn.Module):
         ])
         self.bn_lin = nn.BatchNorm1d(self.out_ch)
 
-        # poly_convs[degree_idx] is a ModuleList over kernel sizes
-        self.poly_convs = nn.ModuleList([
-            nn.ModuleList([
+        if shared_proj:
+            # S2: one conv per kernel, shared across degrees
+            self.shared_poly_convs = nn.ModuleList([
                 nn.Conv1d(in_ch, ch_per_kernel, ks, padding=ks // 2)
                 for ks in kernels
             ])
-            for _ in self.poly_degrees
-        ])
+            self.poly_alphas = nn.ParameterList([
+                nn.Parameter(torch.tensor(alpha))
+                for _ in self.poly_degrees
+            ])
+        else:
+            # poly_convs[degree_idx] is a ModuleList over kernel sizes
+            self.poly_convs = nn.ModuleList([
+                nn.ModuleList([
+                    nn.Conv1d(in_ch, ch_per_kernel, ks, padding=ks // 2)
+                    for ks in kernels
+                ])
+                for _ in self.poly_degrees
+            ])
+
         self.poly_bns = nn.ModuleList([
             nn.BatchNorm1d(self.out_ch) for _ in self.poly_degrees
         ])
+
+        gate_size = 1 if scalar_gates else self.out_ch
         self.poly_gates = nn.ParameterList([
-            nn.Parameter(torch.ones(self.out_ch) * 1e-4)
+            nn.Parameter(torch.ones(gate_size) * 1e-4)
             for _ in self.poly_degrees
         ])
 
@@ -242,14 +319,26 @@ class MultiKernelLaguerreBlock1D(nn.Module):
         x   = x.clamp(-50.0, 50.0)
         out = self.bn_lin(torch.cat([c(x) for c in self.lin_convs], dim=1))
 
-        for deg_convs, bn, gate, deg in zip(
-            self.poly_convs, self.poly_bns, self.poly_gates, self.poly_degrees
-        ):
-            phis = torch.cat([
-                laguerre_feature(c(x), deg, self.alpha)
-                for c in cast(nn.ModuleList, deg_convs)
-            ], dim=1)
-            out = out + gate.view(1, -1, 1) * bn(phis)
+        if self.shared_proj:
+            # Compute one projection per kernel, reuse across all degrees
+            zs = [c(x) for c in self.shared_poly_convs]
+            for alpha_d, bn, gate, deg in zip(
+                self.poly_alphas, self.poly_bns, self.poly_gates, self.poly_degrees
+            ):
+                phis = torch.cat([
+                    laguerre_feature(z, deg, float(alpha_d), self.use_inner_clamp)
+                    for z in zs
+                ], dim=1)
+                out = out + gate.view(1, -1, 1) * bn(phis)
+        else:
+            for deg_convs, bn, gate, deg in zip(
+                self.poly_convs, self.poly_bns, self.poly_gates, self.poly_degrees
+            ):
+                phis = torch.cat([
+                    laguerre_feature(c(x), deg, self.alpha, self.use_inner_clamp)
+                    for c in cast(nn.ModuleList, deg_convs)
+                ], dim=1)
+                out = out + gate.view(1, -1, 1) * bn(phis)
 
         if self.use_shortcut:
             out = self.shortcut(x) + out
