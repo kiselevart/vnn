@@ -261,23 +261,53 @@ python benchmark.py --model laguerre_vnn_1d --suite standard --wandb_group phase
   --poly_degrees 2 3 4 5 --alpha 0.5
 ```
 
+### Phase 3 results (mean over 3 seeds, 8-dataset avg, JV+CT excluded)
+
+| Model | Params | ECG | Ford | Wfr | AWR | NAT | JV | Epi | BM | CT | UW | Avg |
+|-------|-------:|----:|-----:|----:|----:|----:|---:|----:|---:|---:|---:|----:|
+| InceptionTime | 460K | 93.5 | 95.3 | 99.8 | 99.2 | 89.6 | ERR | 97.8 | 98.3 | ERR | 89.9 | **95.4±0.2** |
+| A1: VNN no-cubic | 50K | 93.9 | 93.6 | 99.4 | 97.9 | 86.5 | ERR | 97.6 | 99.2 | ERR | 86.3 | **94.3±0.2** |
+| D2: Laguerre [2,3,4,5] α=0.5 | 38K | 93.9 | 93.4 | 99.5 | 99.1 | 83.1 | ERR | 97.8 | 99.2 | ERR | 87.5 | **94.2±0.2** |
+| A5: VNN Q=4 | 78K | 93.7 | 92.8 | 99.5 | 98.7 | 84.8 | ERR | 97.8 | 96.7 | ERR | 86.6 | 93.8±0.5 |
+
+**Key findings:**
+- A5 was a lucky single seed in Phase 2.5 (95.1% → 93.8% mean); dropped from Phase 4
+- A1 (94.3±0.2) and D2 (94.2±0.2) are essentially tied; D2 wins on params (38K vs 50K)
+- NATOPS is the highest-variance dataset across seeds (IT range: 87.2–91.1%, A5: 80.6–88.9%)
+- **Phase 4 forward: IT, A1, D2**
+
 ---
 
 ## Phase 4: Full 16-dataset Suite
 
-Run the confirmed Phase 3 winners on the full suite.
+> **Prerequisite:** JapaneseVowels and CharacterTrajectories still error (exit 1)
+> on the standard suite. Investigate and fix before launching Phase 4, or accept
+> a 14-dataset effective suite.
 
-```bash
-python benchmark.py --model inceptiontime --suite full --wandb_group final --no-wandb
-python benchmark.py --model <vnn_winner>  --suite full --wandb_group final --no-wandb [flags]
-python benchmark.py --model <lag_winner>  --suite full --wandb_group final --no-wandb [flags]
-```
+Confirmed winners from Phase 3: InceptionTime, A1 (VNN no-cubic), D2 (Laguerre [2,3,4,5] α=0.5).
+Phase 5 simplification ablations run in parallel on the standard suite (same launch, GPU D).
+See `launch_script.sh` for the combined Phase 4+5 run.
 
 **Download full-suite datasets first:**
 ```bash
 python tools/download_ts_datasets.py \
   --dataset FordB ElectricDevices SpokenArabicDigits Heartbeat SelfRegulationSCP1 HandMovementDirection
 ```
+
+```bash
+python benchmark.py --model inceptiontime   --suite full --wandb_group phase4 --no-wandb
+python benchmark.py --model vnn_1d          --suite full --wandb_group phase4 --no-wandb --disable_cubic
+python benchmark.py --model laguerre_vnn_1d --suite full --wandb_group phase4 --no-wandb \
+  --poly_degrees 2 3 4 5 --alpha 0.5
+```
+
+### Phase 4 results (fill in after runs)
+
+| Model | Params | ECG | Ford | Wfr | AWR | NAT | JV | Epi | BM | CT | UW | FordB | ElecDev | SAD | HB | SCP1 | HMD | Avg |
+|-------|-------:|----:|-----:|----:|----:|----:|---:|----:|---:|---:|---:|------:|--------:|----:|---:|-----:|----:|----:|
+| InceptionTime | 460K | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| A1: VNN no-cubic | 50K | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| D2: Laguerre D2 | 38K | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
 
 ---
 
