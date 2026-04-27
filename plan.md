@@ -171,58 +171,94 @@ python benchmark.py --model laguerre_vnn_1d --suite standard --wandb_group phase
   --poly_degrees 4 5 6 --alpha 0.5
 ```
 
-### Phase 2.5 results (fill in after runs)
+### Phase 2.5 results
+
+> **Note:** JapaneseVowels and CharacterTrajectories errored (exit code 1) on all
+> models — both excluded from averages. Avg = mean over 8 datasets.
 
 Columns: ECG=ECG5000, Ford=FordA, Wfr=Wafer, AWR=ArticularyWordRecognition,
 NAT=NATOPS, JV=JapaneseVowels, Epi=Epilepsy, BM=BasicMotions,
-CT=CharacterTrajectories, UW=UWaveGestureLibrary, Avg=mean of 10.
+CT=CharacterTrajectories, UW=UWaveGestureLibrary, Avg=mean of 8 (JV+CT excluded).
 
 #### Baselines
 
 | Model | Params | ECG | Ford | Wfr | AWR | NAT | JV | Epi | BM | CT | UW | Avg |
 |-------|-------:|----:|-----:|----:|----:|----:|---:|----:|---:|---:|---:|----:|
-| FCN | 265K | — | — | — | — | — | — | — | — | — | — | — |
-| ResNet1D | 479K | — | — | — | — | — | — | — | — | — | — | — |
-| InceptionTime | 460K | — | — | — | — | — | — | — | — | — | — | — |
+| FCN | 265K | 94.1 | 92.3 | 99.4 | 99.3 | 89.4 | ERR | 99.3 | 100.0 | ERR | 84.4 | 94.8 |
+| ResNet1D | 479K | 93.7 | 92.0 | 99.6 | 98.7 | 88.3 | ERR | 98.5 | 100.0 | ERR | 84.1 | 94.4 |
+| InceptionTime | 460K | 93.7 | 95.5 | 99.8 | 99.3 | 88.3 | ERR | 97.1 | 100.0 | ERR | 89.7 | **95.4** |
 
 #### VNN1D ablations
 
 | Config | Params | ECG | Ford | Wfr | AWR | NAT | JV | Epi | BM | CT | UW | Avg |
 |--------|-------:|----:|-----:|----:|----:|----:|---:|----:|---:|---:|---:|----:|
-| A1: no cubic | 50K | — | — | — | — | — | — | — | — | — | — | — |
-| A2: default | 50K | — | — | — | — | — | — | — | — | — | — | — |
-| A3: cubic gen | 57K | — | — | — | — | — | — | — | — | — | — | — |
-| A4: Q=1 | 36K | — | — | — | — | — | — | — | — | — | — | — |
-| A5: Q=4 | 78K | — | — | — | — | — | — | — | — | — | — | — |
-| A6: ch=12 | 440K | — | — | — | — | — | — | — | — | — | — | — |
+| A1: no cubic | 50K | 94.2 | 93.6 | 99.3 | 98.3 | 87.2 | ERR | 98.5 | 100.0 | ERR | 88.4 | **94.9** |
+| A2: default | 50K | 94.0 | 93.3 | 99.6 | 98.3 | 87.2 | ERR | 96.4 | 100.0 | ERR | 87.8 | 94.6 |
+| A3: cubic gen | 57K | 93.7 | 92.8 | 99.5 | 98.7 | 86.1 | ERR | 97.1 | 100.0 | ERR | 87.2 | 94.4 |
+| A4: Q=1 | 36K | 93.9 | 93.3 | 99.2 | 99.0 | 87.2 | ERR | 97.1 | 95.0 | ERR | 85.0 | 93.7 |
+| A5: Q=4 | 78K | 93.9 | 92.3 | 99.5 | 99.0 | 88.3 | ERR | 99.3 | 100.0 | ERR | 88.1 | **95.1** |
+| A6: ch=12 | 440K | 93.8 | 92.8 | 99.7 | 98.3 | 86.1 | ERR | 100.0 | 100.0 | ERR | 88.1 | 94.9 |
 
 #### Laguerre degree ablations
 
 | Config | Params | ECG | Ford | Wfr | AWR | NAT | JV | Epi | BM | CT | UW | Avg |
 |--------|-------:|----:|-----:|----:|----:|----:|---:|----:|---:|---:|---:|----:|
-| B1: [1] | 17K | — | — | — | — | — | — | — | — | — | — | — |
-| B2: [2] | 17K | — | — | — | — | — | — | — | — | — | — | — |
-| B3: [2,3] | 24K | — | — | — | — | — | — | — | — | — | — | — |
-| B4: [2,3,4] | 31K | — | — | — | — | — | — | — | — | — | — | — |
-| B5: [2,3,4] α=0.5 | 31K | — | — | — | — | — | — | — | — | — | — | — |
-| B6: [3,4,5] α=0.5 | 31K | — | — | — | — | — | — | — | — | — | — | — |
-| D1: [3,4] α=0.5 | 24K | — | — | — | — | — | — | — | — | — | — | — |
-| D2: [2,3,4,5] α=0.5 | 38K | — | — | — | — | — | — | — | — | — | — | — |
-| D3: [4,5,6] α=0.5 | 31K | — | — | — | — | — | — | — | — | — | — | — |
+| B1: [1] | 17K | 93.8 | 93.2 | 99.5 | 97.7 | 85.6 | ERR | 96.4 | 97.5 | ERR | 86.2 | 93.7 |
+| B2: [2] | 17K | 93.7 | 93.0 | 99.5 | 97.0 | 85.6 | ERR | 96.4 | 100.0 | ERR | 86.9 | 94.0 |
+| B3: [2,3] | 24K | 93.8 | 93.3 | 99.2 | 98.7 | 87.2 | ERR | 96.4 | 100.0 | ERR | 84.1 | 94.1 |
+| B4: [2,3,4] | 31K | 94.0 | 93.0 | 99.6 | 99.0 | 87.2 | ERR | 99.3 | 100.0 | ERR | 83.8 | 94.5 |
+| B5: [2,3,4] α=0.5 | 31K | 94.1 | 93.7 | 99.3 | 99.3 | 83.9 | ERR | 96.4 | 97.5 | ERR | 84.4 | 93.6 |
+| B6: [3,4,5] α=0.5 | 31K | 94.2 | 93.4 | 99.4 | 99.3 | 81.7 | ERR | 97.8 | 100.0 | ERR | 86.6 | 94.1 |
+| D1: [3,4] α=0.5 | 24K | 93.7 | 93.9 | 99.3 | 99.0 | 83.3 | ERR | 97.8 | 100.0 | ERR | 83.8 | 93.9 |
+| D2: [2,3,4,5] α=0.5 | 38K | 93.7 | 92.9 | 99.5 | 98.3 | 87.8 | ERR | 98.5 | 100.0 | ERR | 86.9 | **94.7** |
+| D3: [4,5,6] α=0.5 | 31K | 94.0 | 92.4 | 99.5 | 99.0 | 84.4 | ERR | 95.7 | 100.0 | ERR | 87.5 | 94.1 |
+
+#### Winners
+
+- **VNN winner: A1 (no cubic, 50K)** — 94.9% avg; cubic terms add no value and hurt on average
+- **VNN runner-up: A5 (Q=4, 78K)** — 95.1% avg (best VNN, but 1.6× more params than A1)
+- **Laguerre winner: D2 ([2,3,4,5] α=0.5, 38K)** — 94.7% avg
+- **Best baseline: InceptionTime** — 95.4% avg
+- **Key finding:** B6 was the quick-suite winner but NATOPS collapses to 81.7% on the full suite; α=1.0 (B4) and mixed-degree (D2) are more robust
 
 ---
 
 ## Phase 3: Seed Runs
 
-Run each winner 3× to get mean ± std.  Run after Phase 2.5 confirms which
-configs win on the expanded standard suite — winners may differ from the
-quick-suite results above.
+Winners from Phase 2.5 (8-dataset avg, JV+CT excluded):
+
+| Model | Params | Avg |
+|-------|-------:|----:|
+| InceptionTime | 460K | 95.4% |
+| A5: VNN Q=4 | 78K | 95.1% |
+| A1: VNN no-cubic | 50K | 94.9% |
+| D2: Laguerre [2,3,4,5] α=0.5 | 38K | 94.7% |
+
+Run each 3× to get mean ± std.  See `launch_script.sh` for the Phase 3 run script.
 
 ```bash
-# Repeat 3× for each winner (substitute correct config flags after Phase 2.5)
-python benchmark.py --model <winner_model> --suite standard --wandb_group seed_runs --no-wandb [flags]
-python benchmark.py --model <winner_model> --suite standard --wandb_group seed_runs --no-wandb [flags]
-python benchmark.py --model <winner_model> --suite standard --wandb_group seed_runs --no-wandb [flags]
+# InceptionTime ×3
+python benchmark.py --model inceptiontime --suite standard --wandb_group phase3_seeds --no-wandb
+python benchmark.py --model inceptiontime --suite standard --wandb_group phase3_seeds --no-wandb
+python benchmark.py --model inceptiontime --suite standard --wandb_group phase3_seeds --no-wandb
+
+# VNN A1 (no cubic) ×3
+python benchmark.py --model vnn_1d --suite standard --wandb_group phase3_seeds --no-wandb --disable_cubic
+python benchmark.py --model vnn_1d --suite standard --wandb_group phase3_seeds --no-wandb --disable_cubic
+python benchmark.py --model vnn_1d --suite standard --wandb_group phase3_seeds --no-wandb --disable_cubic
+
+# VNN A5 (Q=4) ×3
+python benchmark.py --model vnn_1d --suite standard --wandb_group phase3_seeds --no-wandb --Q 4
+python benchmark.py --model vnn_1d --suite standard --wandb_group phase3_seeds --no-wandb --Q 4
+python benchmark.py --model vnn_1d --suite standard --wandb_group phase3_seeds --no-wandb --Q 4
+
+# Laguerre D2 ([2,3,4,5] α=0.5) ×3
+python benchmark.py --model laguerre_vnn_1d --suite standard --wandb_group phase3_seeds --no-wandb \
+  --poly_degrees 2 3 4 5 --alpha 0.5
+python benchmark.py --model laguerre_vnn_1d --suite standard --wandb_group phase3_seeds --no-wandb \
+  --poly_degrees 2 3 4 5 --alpha 0.5
+python benchmark.py --model laguerre_vnn_1d --suite standard --wandb_group phase3_seeds --no-wandb \
+  --poly_degrees 2 3 4 5 --alpha 0.5
 ```
 
 ---
@@ -258,25 +294,25 @@ Run on the standard suite against the Phase 2.5 winner for an apples-to-apples c
 | S3 | `laguerre_vnn_1d_s3` | Scalar gates instead of per-channel | 93K (−0.5%) |
 
 ```bash
-# Run after Phase 2.5 — substitute the winning poly_degrees/alpha below
+# Base config: D2 winner ([2,3,4,5] α=0.5) — Phase 2.5 Laguerre winner
 python benchmark.py --model laguerre_vnn_1d    --suite standard --wandb_group simp_ablations --no-wandb \
-  --poly_degrees 3 4 5 --alpha 0.5
+  --poly_degrees 2 3 4 5 --alpha 0.5
 
 python benchmark.py --model laguerre_vnn_1d_s1 --suite standard --wandb_group simp_ablations --no-wandb \
-  --poly_degrees 3 4 5 --alpha 0.5
+  --poly_degrees 2 3 4 5 --alpha 0.5
 
 python benchmark.py --model laguerre_vnn_1d_s2 --suite standard --wandb_group simp_ablations --no-wandb \
-  --poly_degrees 3 4 5 --alpha 0.5
+  --poly_degrees 2 3 4 5 --alpha 0.5
 
 python benchmark.py --model laguerre_vnn_1d_s3 --suite standard --wandb_group simp_ablations --no-wandb \
-  --poly_degrees 3 4 5 --alpha 0.5
+  --poly_degrees 2 3 4 5 --alpha 0.5
 ```
 
 ### Simplification ablation results (fill in after runs)
 
 | Config | Params | ECG | Ford | Wfr | AWR | NAT | JV | Epi | BM | CT | UW | Avg |
 |--------|-------:|----:|-----:|----:|----:|----:|---:|----:|---:|---:|---:|----:|
-| Base (B6) | 31K | — | — | — | — | — | — | — | — | — | — | — |
-| S1: no inner clamp | 31K | — | — | — | — | — | — | — | — | — | — | — |
-| S2: shared proj | 22K | — | — | — | — | — | — | — | — | — | — | — |
-| S3: scalar gates | 31K | — | — | — | — | — | — | — | — | — | — | — |
+| Base (D2) | 38K | — | — | — | — | — | — | — | — | — | — | — |
+| S1: no inner clamp | 38K | — | — | — | — | — | — | — | — | — | — | — |
+| S2: shared proj | 27K | — | — | — | — | — | — | — | — | — | — | — |
+| S3: scalar gates | 38K | — | — | — | — | — | — | — | — | — | — | — |

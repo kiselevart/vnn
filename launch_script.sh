@@ -1,12 +1,18 @@
 #!/bin/bash
-# Phase 2.5: Full ablation rerun on the expanded 10-dataset standard suite.
-# 18 jobs total — 4 GPUs running in parallel, ~2–3 hours wall time.
+# Phase 3: Seed runs for the Phase 2.5 winners.
+# 4 models × 3 seeds = 12 jobs across 4 GPUs, ~1.5–2 hours wall time.
 #
-# GPU layout (edit GPUS to match your actual device IDs):
-#   GPU A — baselines (FCN / ResNet1D / InceptionTime) + VNN A6     (~140 min)
-#   GPU B — VNN ablations A1–A4                                      (~90 min)
-#   GPU C — VNN A5 + Laguerre B1–B4                                  (~110 min)
-#   GPU D — Laguerre B5–B6, D1–D3                                    (~125 min)
+# Winners (8-dataset avg, JV+CT excluded):
+#   InceptionTime  460K  95.4%
+#   A5: VNN Q=4    78K   95.1%
+#   A1: VNN no-cubic 50K 94.9%
+#   D2: Laguerre [2,3,4,5] α=0.5  38K  94.7%
+#
+# GPU layout:
+#   GPU A — InceptionTime ×3     (~90 min)
+#   GPU B — VNN A1 ×3            (~60 min)
+#   GPU C — VNN A5 ×3            (~75 min)
+#   GPU D — Laguerre D2 ×3       (~90 min)
 #
 # Usage:
 #   bash launch_script.sh
@@ -20,7 +26,7 @@ GB=${GPUS[1]}
 GC=${GPUS[2]}
 GD=${GPUS[3]}
 
-WANDB_GROUP="phase25"
+WANDB_GROUP="phase3_seeds"
 SUITE_ARGS=(--suite standard --wandb_group "$WANDB_GROUP" --no-wandb)
 
 LOG_DIR="./logs/$(date +%Y%m%d_%H%M%S)"
@@ -64,72 +70,53 @@ bench() {
 }
 
 # ---------------------------------------------------------------------------
-# Pre-flight: download all standard-suite datasets on the main process
-# so parallel GPU jobs don't race to write the same files.
-# ---------------------------------------------------------------------------
-
-echo "Downloading standard-suite datasets (skips already-present files) ..."
-python tools/download_ts_datasets.py \
-  --dataset ECG5000 FordA Wafer \
-            ArticularyWordRecognition NATOPS JapaneseVowels \
-            Epilepsy BasicMotions CharacterTrajectories UWaveGestureLibrary
-echo ""
-
-# ---------------------------------------------------------------------------
-# GPU A — Baselines + VNN A6  (4 jobs, ~140 min)
-# Large models (265–479K params) are slowest, so kept together on one GPU.
+# GPU A — InceptionTime ×3  (~90 min)
 # ---------------------------------------------------------------------------
 gpu_a_jobs() {
-  echo "[GPU $GA] starting baselines + A6 ..."
-  bench "fcn"           $GA --model fcn
-  bench "resnet1d"      $GA --model resnet1d
-  bench "inceptiontime" $GA --model inceptiontime
-  bench "A6_vnn_ch12"   $GA --model vnn_1d --base_ch 12
+  echo "[GPU $GA] starting InceptionTime seeds ..."
+  bench "IT_s1" $GA --model inceptiontime
+  bench "IT_s2" $GA --model inceptiontime
+  bench "IT_s3" $GA --model inceptiontime
 }
 
 # ---------------------------------------------------------------------------
-# GPU B — VNN1D ablations A1–A4  (4 jobs, ~90 min)
+# GPU B — VNN A1 (no cubic) ×3  (~60 min)
 # ---------------------------------------------------------------------------
 gpu_b_jobs() {
-  echo "[GPU $GB] starting VNN ablations A1–A4 ..."
-  bench "A1_vnn_nocubic"  $GB --model vnn_1d --disable_cubic
-  bench "A2_vnn_default"  $GB --model vnn_1d
-  bench "A3_vnn_cubicgen" $GB --model vnn_1d --cubic_mode general
-  bench "A4_vnn_Q1"       $GB --model vnn_1d --Q 1
+  echo "[GPU $GB] starting VNN A1 (no cubic) seeds ..."
+  bench "A1_vnn_nocubic_s1" $GB --model vnn_1d --disable_cubic
+  bench "A1_vnn_nocubic_s2" $GB --model vnn_1d --disable_cubic
+  bench "A1_vnn_nocubic_s3" $GB --model vnn_1d --disable_cubic
 }
 
 # ---------------------------------------------------------------------------
-# GPU C — VNN A5 + Laguerre B1–B4  (5 jobs, ~110 min)
+# GPU C — VNN A5 (Q=4) ×3  (~75 min)
 # ---------------------------------------------------------------------------
 gpu_c_jobs() {
-  echo "[GPU $GC] starting VNN A5 + Laguerre B1–B4 ..."
-  bench "A5_vnn_Q4"    $GC --model vnn_1d --Q 4
-  bench "B1_lag_1"     $GC --model laguerre_vnn_1d --poly_degrees 1 --alpha 1.0
-  bench "B2_lag_2"     $GC --model laguerre_vnn_1d --poly_degrees 2 --alpha 1.0
-  bench "B3_lag_23"    $GC --model laguerre_vnn_1d --poly_degrees 2 3 --alpha 1.0
-  bench "B4_lag_234"   $GC --model laguerre_vnn_1d --poly_degrees 2 3 4 --alpha 1.0
+  echo "[GPU $GC] starting VNN A5 (Q=4) seeds ..."
+  bench "A5_vnn_Q4_s1" $GC --model vnn_1d --Q 4
+  bench "A5_vnn_Q4_s2" $GC --model vnn_1d --Q 4
+  bench "A5_vnn_Q4_s3" $GC --model vnn_1d --Q 4
 }
 
 # ---------------------------------------------------------------------------
-# GPU D — Laguerre B5–B6, D1–D3  (5 jobs, ~125 min)
+# GPU D — Laguerre D2 ([2,3,4,5] α=0.5) ×3  (~90 min)
 # ---------------------------------------------------------------------------
 gpu_d_jobs() {
-  echo "[GPU $GD] starting Laguerre B5–B6 + D1–D3 ..."
-  bench "B5_lag_234_a05"  $GD --model laguerre_vnn_1d --poly_degrees 2 3 4   --alpha 0.5
-  bench "B6_lag_345_a05"  $GD --model laguerre_vnn_1d --poly_degrees 3 4 5   --alpha 0.5
-  bench "D1_lag_34_a05"   $GD --model laguerre_vnn_1d --poly_degrees 3 4     --alpha 0.5
-  bench "D2_lag_2345_a05" $GD --model laguerre_vnn_1d --poly_degrees 2 3 4 5 --alpha 0.5
-  bench "D3_lag_456_a05"  $GD --model laguerre_vnn_1d --poly_degrees 4 5 6   --alpha 0.5
+  echo "[GPU $GD] starting Laguerre D2 seeds ..."
+  bench "D2_lag_2345_a05_s1" $GD --model laguerre_vnn_1d --poly_degrees 2 3 4 5 --alpha 0.5
+  bench "D2_lag_2345_a05_s2" $GD --model laguerre_vnn_1d --poly_degrees 2 3 4 5 --alpha 0.5
+  bench "D2_lag_2345_a05_s3" $GD --model laguerre_vnn_1d --poly_degrees 2 3 4 5 --alpha 0.5
 }
 
 # ---------------------------------------------------------------------------
 # Launch all GPU streams in parallel
 # ---------------------------------------------------------------------------
-echo "Phase 2.5 — 18 jobs across 4 GPUs"
-echo "  GPU $GA: baselines (FCN / ResNet1D / InceptionTime) + VNN A6"
-echo "  GPU $GB: VNN A1–A4"
-echo "  GPU $GC: VNN A5 + Laguerre B1–B4"
-echo "  GPU $GD: Laguerre B5–B6, D1–D3"
+echo "Phase 3 — 12 jobs across 4 GPUs (3 seeds each)"
+echo "  GPU $GA: InceptionTime ×3"
+echo "  GPU $GB: VNN A1 (no cubic) ×3"
+echo "  GPU $GC: VNN A5 (Q=4) ×3"
+echo "  GPU $GD: Laguerre D2 ([2,3,4,5] α=0.5) ×3"
 echo "W&B group: $WANDB_GROUP"
 echo "Logs: $LOG_DIR/"
 echo ""
@@ -167,10 +154,10 @@ for log in "$LOG_DIR"/*.log; do
 done | sort
 
 echo ""
-[ $SA -eq 0 ] && echo "GPU $GA (baselines+A6): all done" || echo "GPU $GA (baselines+A6): had failures"
-[ $SB -eq 0 ] && echo "GPU $GB (VNN A1-A4):    all done" || echo "GPU $GB (VNN A1-A4):    had failures"
-[ $SC -eq 0 ] && echo "GPU $GC (VNN A5+Lag B): all done" || echo "GPU $GC (VNN A5+Lag B): had failures"
-[ $SD -eq 0 ] && echo "GPU $GD (Lag B5-D3):    all done" || echo "GPU $GD (Lag B5-D3):    had failures"
+[ $SA -eq 0 ] && echo "GPU $GA (InceptionTime):  all done" || echo "GPU $GA (InceptionTime):  had failures"
+[ $SB -eq 0 ] && echo "GPU $GB (VNN A1):         all done" || echo "GPU $GB (VNN A1):         had failures"
+[ $SC -eq 0 ] && echo "GPU $GC (VNN A5):         all done" || echo "GPU $GC (VNN A5):         had failures"
+[ $SD -eq 0 ] && echo "GPU $GD (Laguerre D2):    all done" || echo "GPU $GD (Laguerre D2):    had failures"
 echo ""
 echo "Logs: $LOG_DIR/"
-echo "Next: fill Phase 2.5 result tables in plan.md, then pick winners for Phase 3."
+echo "Next: compute mean ± std per model from the 3 seeds, update Phase 3 table in plan.md, then proceed to Phase 4."
