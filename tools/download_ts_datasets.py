@@ -40,7 +40,6 @@ RECOMMENDED = {
     "Epilepsy":                  ("UEA",  3, 206,  4,  137,  138),
     "BasicMotions":              ("UEA",  6, 100,  4,   40,   40),
     "CharacterTrajectories":     ("UEA",  3, 182, 20, 1422, 1436),
-    "UWaveGestureLibrary":       ("UEA",  3, 315,  8,  120,  320),
     "SpokenArabicDigits":        ("UEA", 13,  93, 10, 6599, 2199),
     "Heartbeat":                 ("UEA", 61, 405,  2,  204,  205),
     "SelfRegulationSCP1":        ("UEA",  6, 896,  2,  268,  293),

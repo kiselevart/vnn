@@ -26,7 +26,6 @@ EthanolConcentration removed permanently (extreme overfitting, uninformative).
 | Epilepsy | UEA | 3 | 206 | 4 | 137 |
 | BasicMotions | UEA | 6 | 100 | 4 | 40 |
 | CharacterTrajectories | UEA | 3 | 182 | 20 | 1422 |
-| UWaveGestureLibrary | UEA | 3 | 315 | 8 | 120 |
 
 ### Full suite adds (6 more)
 
@@ -93,7 +92,7 @@ be treated as preliminary only.
 ```bash
 python tools/download_ts_datasets.py \
   --dataset ECG5000 FordA Wafer ArticularyWordRecognition NATOPS \
-            JapaneseVowels Epilepsy BasicMotions CharacterTrajectories UWaveGestureLibrary
+            JapaneseVowels Epilepsy BasicMotions CharacterTrajectories
 ```
 
 ### Baselines
@@ -178,7 +177,7 @@ python benchmark.py --model laguerre_vnn_1d --suite standard --wandb_group phase
 
 Columns: ECG=ECG5000, Ford=FordA, Wfr=Wafer, AWR=ArticularyWordRecognition,
 NAT=NATOPS, JV=JapaneseVowels, Epi=Epilepsy, BM=BasicMotions,
-CT=CharacterTrajectories, UW=UWaveGestureLibrary, Avg=mean of 8 (JV+CT excluded).
+CT=CharacterTrajectories, Avg=mean of 8 (JV+CT excluded).
 
 #### Baselines
 

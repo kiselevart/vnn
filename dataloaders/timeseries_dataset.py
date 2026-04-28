@@ -138,8 +138,8 @@ def load_ucr_dataset(name: str, root: str = "./data/ucr"):
             f"or set UCR_ROOT env var to point to your UCR archive directory."
         )
 
-    X_train, y_train = load_from_ts_file(train_path)
-    X_test,  y_test  = load_from_ts_file(test_path)
+    X_train, y_train = load_from_ts_file(train_path)  # type: ignore[misc]
+    X_test,  y_test  = load_from_ts_file(test_path)   # type: ignore[misc]
 
     # aeon returns [N, C, T] float64, or a list of [C, T_i] for variable-length datasets
     if isinstance(X_train, list):

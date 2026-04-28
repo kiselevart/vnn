@@ -72,8 +72,6 @@ _STANDARD: list[DSConfig] = [
              difficulty="easy",        in_ch=6,  seq_len=100,  n_classes=4,  n_train=40),
     DSConfig("CharacterTrajectories",    base_ch=8, epochs=200,
              difficulty="medium",      in_ch=3,  seq_len=182,  n_classes=20, n_train=1422),
-    DSConfig("UWaveGestureLibrary",      base_ch=8, epochs=200,
-             difficulty="medium",      in_ch=3,  seq_len=315,  n_classes=8,  n_train=120),
 ]
 
 _FULL: list[DSConfig] = _STANDARD + [
