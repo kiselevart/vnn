@@ -42,6 +42,15 @@ def _fill_nan(X: np.ndarray) -> None:
             s[np.isnan(s)] = 0.0
 
 
+def _pad_ragged(X_list: list, max_len: int) -> np.ndarray:
+    """Pad a list of [C, T_i] arrays to a [N, C, max_len] float32 array."""
+    C = X_list[0].shape[0]
+    out = np.zeros((len(X_list), C, max_len), dtype=np.float32)
+    for i, x in enumerate(X_list):
+        out[i, :, :x.shape[-1]] = x
+    return out
+
+
 def _zscore(X: np.ndarray) -> np.ndarray:
     """Per-sample z-score along the time axis. Constant series → unchanged."""
     mean = X.mean(axis=-1, keepdims=True)
@@ -132,9 +141,17 @@ def load_ucr_dataset(name: str, root: str = "./data/ucr"):
     X_train, y_train = load_from_ts_file(train_path)
     X_test,  y_test  = load_from_ts_file(test_path)
 
-    # aeon returns [N, C, T] float64
-    X_train = X_train.astype(np.float32)
-    X_test  = X_test.astype(np.float32)
+    # aeon returns [N, C, T] float64, or a list of [C, T_i] for variable-length datasets
+    if isinstance(X_train, list):
+        max_len = max(
+            max(x.shape[-1] for x in X_train),
+            max(x.shape[-1] for x in X_test),  # type: ignore[union-attr]
+        )
+        X_train = _pad_ragged(X_train, max_len)
+        X_test  = _pad_ragged(X_test, max_len)  # type: ignore[arg-type]
+    else:
+        X_train = X_train.astype(np.float32)  # type: ignore[union-attr]
+        X_test  = X_test.astype(np.float32)   # type: ignore[union-attr]
 
     y_train, y_test, classes = _encode_labels(y_train, y_test)
 
