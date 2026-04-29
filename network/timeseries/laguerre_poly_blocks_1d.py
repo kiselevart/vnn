@@ -64,7 +64,7 @@ def laguerre_poly(n: int, t: torch.Tensor) -> torch.Tensor:
     return L1
 
 
-def laguerre_feature(z: torch.Tensor, degree: int, alpha: float = 1.0,
+def laguerre_feature(z: torch.Tensor, degree: int, alpha=1.0,
                      use_inner_clamp: bool = True) -> torch.Tensor:
     """Compute L_degree(softplus(α·z)), clamped to [-50, 50].
 
@@ -154,7 +154,8 @@ class LaguerrePolyBlock1D(nn.Module):
                  alpha: float = 1.0,
                  use_inner_clamp: bool = True,
                  shared_proj: bool = False,
-                 scalar_gates: bool = False):
+                 scalar_gates: bool = False,
+                 learnable_alpha: bool = False):
         super().__init__()
         if poly_degrees is None:
             poly_degrees = [2, 3]
@@ -164,6 +165,8 @@ class LaguerrePolyBlock1D(nn.Module):
         self.alpha            = alpha
         self.use_inner_clamp  = use_inner_clamp
         self.shared_proj      = shared_proj
+        # learnable_alpha is redundant when shared_proj=True (poly_alphas already created)
+        self.learnable_alpha  = learnable_alpha and not shared_proj
 
         pad = kernel_size // 2
 
@@ -182,6 +185,11 @@ class LaguerrePolyBlock1D(nn.Module):
                 nn.Conv1d(in_ch, out_ch, kernel_size, padding=pad)
                 for _ in self.poly_degrees
             ])
+            if self.learnable_alpha:
+                self.poly_alphas = nn.ParameterList([
+                    nn.Parameter(torch.tensor(alpha))
+                    for _ in self.poly_degrees
+                ])
 
         self.poly_bns = nn.ModuleList([
             nn.BatchNorm1d(out_ch) for _ in self.poly_degrees
@@ -212,7 +220,13 @@ class LaguerrePolyBlock1D(nn.Module):
             for alpha_d, bn, gate, deg in zip(
                 self.poly_alphas, self.poly_bns, self.poly_gates, self.poly_degrees
             ):
-                phi = bn(laguerre_feature(z, deg, float(alpha_d), self.use_inner_clamp))
+                phi = bn(laguerre_feature(z, deg, alpha_d, self.use_inner_clamp))
+                out = out + gate.view(1, -1, 1) * phi
+        elif self.learnable_alpha:
+            for conv, bn, gate, alpha_d, deg in zip(
+                self.poly_convs, self.poly_bns, self.poly_gates, self.poly_alphas, self.poly_degrees
+            ):
+                phi = bn(laguerre_feature(conv(x), deg, alpha_d, self.use_inner_clamp))
                 out = out + gate.view(1, -1, 1) * phi
         else:
             for conv, bn, gate, deg in zip(
@@ -258,7 +272,8 @@ class MultiKernelLaguerreBlock1D(nn.Module):
                  use_shortcut: bool = False, alpha: float = 1.0,
                  use_inner_clamp: bool = True,
                  shared_proj: bool = False,
-                 scalar_gates: bool = False):
+                 scalar_gates: bool = False,
+                 learnable_alpha: bool = False):
         super().__init__()
         if poly_degrees is None:
             poly_degrees = [2, 3]
@@ -269,6 +284,7 @@ class MultiKernelLaguerreBlock1D(nn.Module):
         self.alpha         = alpha
         self.use_inner_clamp = use_inner_clamp
         self.shared_proj   = shared_proj
+        self.learnable_alpha = learnable_alpha and not shared_proj
 
         self.lin_convs = nn.ModuleList([
             nn.Conv1d(in_ch, ch_per_kernel, ks, padding=ks // 2)
@@ -295,6 +311,11 @@ class MultiKernelLaguerreBlock1D(nn.Module):
                 ])
                 for _ in self.poly_degrees
             ])
+            if self.learnable_alpha:
+                self.poly_alphas = nn.ParameterList([
+                    nn.Parameter(torch.tensor(alpha))
+                    for _ in self.poly_degrees
+                ])
 
         self.poly_bns = nn.ModuleList([
             nn.BatchNorm1d(self.out_ch) for _ in self.poly_degrees
@@ -326,8 +347,17 @@ class MultiKernelLaguerreBlock1D(nn.Module):
                 self.poly_alphas, self.poly_bns, self.poly_gates, self.poly_degrees
             ):
                 phis = torch.cat([
-                    laguerre_feature(z, deg, float(alpha_d), self.use_inner_clamp)
+                    laguerre_feature(z, deg, alpha_d, self.use_inner_clamp)
                     for z in zs
+                ], dim=1)
+                out = out + gate.view(1, -1, 1) * bn(phis)
+        elif self.learnable_alpha:
+            for deg_convs, bn, gate, alpha_d, deg in zip(
+                self.poly_convs, self.poly_bns, self.poly_gates, self.poly_alphas, self.poly_degrees
+            ):
+                phis = torch.cat([
+                    laguerre_feature(c(x), deg, alpha_d, self.use_inner_clamp)
+                    for c in cast(nn.ModuleList, deg_convs)
                 ], dim=1)
                 out = out + gate.view(1, -1, 1) * bn(phis)
         else:

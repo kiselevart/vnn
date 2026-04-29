@@ -1,15 +1,17 @@
 #!/bin/bash
-# Phase 5b + Phase 6 (parallel):
-#   GPU A — Laguerre S3 (scalar gates) on full suite        (~130 min)
-#   GPU B — Laguerre S2 (shared proj)  on full suite        (~130 min)
-#   GPU D — S4 (shared+noclamp) + S5 (scalar+noclamp)       (~100 min)
-#            on standard suite
+# Phase 7: full-suite S4/S5 + standard-suite S6/S7/S8
 #
-# Phase 4 + Phase 5 (DONE 2026-04-28, logs/20260428_131623/):
-#   IT full: 87.1% avg (15 datasets)
-#   A1 full: 85.5% avg — VNN no-cubic
-#   D2 full: 85.6% avg — Laguerre [2,3,4,5] α=0.5
-#   Base (D2) std: 95.3%, S1: 95.1%, S2: 95.4% (18K), S3: 95.8%
+#   GPU A — S5 (scalar+noclamp)       on full suite      (~145 min)
+#   GPU B — S4 (shared+noclamp)       on full suite      (~138 min)
+#   GPU C — S6 (learnable α, base)    on standard suite  (~50 min)
+#            S7 (shared+scalar+noclamp)on standard suite  (~40 min)
+#   GPU D — S8 (scalar+noclamp+learnα)on standard suite  (~50 min)
+#
+# Phase 5b + Phase 6 results (DONE 2026-04-29, logs/20260429_121626/):
+#   S4 std:  95.1%  (shared+noclamp, 18K)
+#   S5 std:  95.9%  (scalar+noclamp, 38K) ← standard-suite winner
+#   S2 full: 85.7%  (shared, 18K)         ← efficiency headline (= D2 at half params)
+#   S3 full: 85.1%  (scalar, 38K)         ← std-suite win doesn't hold on full suite
 #
 # Usage:
 #   bash launch_script.sh
@@ -26,8 +28,8 @@ GD=${GPUS[3]}
 LOG_DIR="./logs/$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$LOG_DIR"
 
-FULL_ARGS=(--suite full  --wandb_group phase6 --no-wandb)
-STD_ARGS=(--suite standard --wandb_group phase6_std --no-wandb)
+FULL_ARGS=(--suite full     --wandb_group phase7 --no-wandb)
+STD_ARGS=( --suite standard --wandb_group phase7 --no-wandb)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -58,48 +60,56 @@ run_job() {
   return $status
 }
 
-bench_full() {
-  local name="$1" gpu="$2"; shift 2
-  run_job "$name" "$gpu" python benchmark.py "${FULL_ARGS[@]}" "$@"
-}
+bench_full() { local name="$1" gpu="$2"; shift 2
+  run_job "$name" "$gpu" python benchmark.py "${FULL_ARGS[@]}" "$@"; }
 
-bench_std() {
-  local name="$1" gpu="$2"; shift 2
-  run_job "$name" "$gpu" python benchmark.py "${STD_ARGS[@]}" "$@"
-}
+bench_std()  { local name="$1" gpu="$2"; shift 2
+  run_job "$name" "$gpu" python benchmark.py "${STD_ARGS[@]}"  "$@"; }
+
+LAG_ARGS=(--poly_degrees 2 3 4 5 --alpha 0.5)
 
 # ---------------------------------------------------------------------------
-# GPU A — Laguerre S3 (scalar gates) on full suite
+# GPU A — S5 (scalar+noclamp) on full suite
 # ---------------------------------------------------------------------------
 gpu_a_jobs() {
-  echo "[GPU $GA] Laguerre S3 (scalar gates) — full suite ..."
-  bench_full "P6_S3_scalar_full" $GA --model laguerre_vnn_1d_s3 --poly_degrees 2 3 4 5 --alpha 0.5
+  echo "[GPU $GA] S5 scalar+noclamp — full suite ..."
+  bench_full "P7_S5_scalar_noclamp_full" $GA --model laguerre_vnn_1d_s5 "${LAG_ARGS[@]}"
 }
 
 # ---------------------------------------------------------------------------
-# GPU B — Laguerre S2 (shared proj) on full suite
+# GPU B — S4 (shared+noclamp) on full suite
 # ---------------------------------------------------------------------------
 gpu_b_jobs() {
-  echo "[GPU $GB] Laguerre S2 (shared proj) — full suite ..."
-  bench_full "P6_S2_shared_full" $GB --model laguerre_vnn_1d_s2 --poly_degrees 2 3 4 5 --alpha 0.5
+  echo "[GPU $GB] S4 shared+noclamp — full suite ..."
+  bench_full "P7_S4_shared_noclamp_full" $GB --model laguerre_vnn_1d_s4 "${LAG_ARGS[@]}"
 }
 
 # ---------------------------------------------------------------------------
-# GPU D — Phase 5b: S4 + S5 ablations on standard suite
+# GPU C — S6 + S7 on standard suite
+# ---------------------------------------------------------------------------
+gpu_c_jobs() {
+  echo "[GPU $GC] S6 learnable-alpha (standard) ..."
+  bench_std "P7_S6_learnable_alpha_std" $GC --model laguerre_vnn_1d_s6 "${LAG_ARGS[@]}"
+  echo "[GPU $GC] S7 shared+scalar+noclamp (standard) ..."
+  bench_std "P7_S7_combo_std"           $GC --model laguerre_vnn_1d_s7 "${LAG_ARGS[@]}"
+}
+
+# ---------------------------------------------------------------------------
+# GPU D — S8 on standard suite
 # ---------------------------------------------------------------------------
 gpu_d_jobs() {
-  echo "[GPU $GD] Phase 5b: S4 (shared+noclamp) + S5 (scalar+noclamp) — standard suite ..."
-  bench_std "P5_S4_shared_noclamp" $GD --model laguerre_vnn_1d_s4 --poly_degrees 2 3 4 5 --alpha 0.5
-  bench_std "P5_S5_scalar_noclamp" $GD --model laguerre_vnn_1d_s5 --poly_degrees 2 3 4 5 --alpha 0.5
+  echo "[GPU $GD] S8 scalar+noclamp+learnable-alpha (standard) ..."
+  bench_std "P7_S8_scalar_noclamp_la_std" $GD --model laguerre_vnn_1d_s8 "${LAG_ARGS[@]}"
 }
 
 # ---------------------------------------------------------------------------
 # Launch all streams in parallel
 # ---------------------------------------------------------------------------
-echo "Phase 5b + Phase 6 — 4 jobs across 3 GPUs"
-echo "  GPU $GA: Laguerre S3 scalar gates (full suite)"
-echo "  GPU $GB: Laguerre S2 shared proj  (full suite)"
-echo "  GPU $GD: S4 shared+noclamp + S5 scalar+noclamp (standard suite)"
+echo "Phase 7 — 5 jobs across 4 GPUs"
+echo "  GPU $GA: S5 scalar+noclamp         (full suite,     ~145 min)"
+echo "  GPU $GB: S4 shared+noclamp         (full suite,     ~138 min)"
+echo "  GPU $GC: S6 learnable-α + S7 combo (standard suite, ~90 min)"
+echo "  GPU $GD: S8 scalar+noclamp+learnα  (standard suite, ~50 min)"
 echo "Logs: $LOG_DIR/"
 echo ""
 echo "Monitor:"
@@ -111,11 +121,14 @@ gpu_a_jobs &
 PID_A=$!
 gpu_b_jobs &
 PID_B=$!
+gpu_c_jobs &
+PID_C=$!
 gpu_d_jobs &
 PID_D=$!
 
 wait $PID_A; SA=$?
 wait $PID_B; SB=$?
+wait $PID_C; SC=$?
 wait $PID_D; SD=$?
 
 # ---------------------------------------------------------------------------
@@ -133,9 +146,10 @@ for log in "$LOG_DIR"/*.log; do
 done | sort
 
 echo ""
-[ $SA -eq 0 ] && echo "GPU $GA (S3 full):    done" || echo "GPU $GA (S3 full):    had failures"
-[ $SB -eq 0 ] && echo "GPU $GB (S2 full):    done" || echo "GPU $GB (S2 full):    had failures"
-[ $SD -eq 0 ] && echo "GPU $GD (S4+S5 std):  done" || echo "GPU $GD (S4+S5 std):  had failures"
+[ $SA -eq 0 ] && echo "GPU $GA (S5 full):    done" || echo "GPU $GA (S5 full):    had failures"
+[ $SB -eq 0 ] && echo "GPU $GB (S4 full):    done" || echo "GPU $GB (S4 full):    had failures"
+[ $SC -eq 0 ] && echo "GPU $GC (S6+S7 std):  done" || echo "GPU $GC (S6+S7 std):  had failures"
+[ $SD -eq 0 ] && echo "GPU $GD (S8 std):     done" || echo "GPU $GD (S8 std):     had failures"
 echo ""
 echo "Logs: $LOG_DIR/"
-echo "Next: fill Phase 5 S4/S5 rows and Phase 6 table in plan.md."
+echo "Next: fill Phase 7 tables in plan.md."

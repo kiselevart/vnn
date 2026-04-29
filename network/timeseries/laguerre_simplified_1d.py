@@ -1,35 +1,36 @@
 """
 Simplified variants of LaguerreVNN1D for ablation studies.
 
-Three separate model types, each applying one simplification to the base
-LaguerreVNN1D architecture.  All other hyperparameters (channel widths,
-block topology, kernel sizes) are identical to LaguerreVNN1D so results
-are directly comparable.
+All variants share the same 4-block backbone topology; only specific
+components differ.  Results are directly comparable to LaguerreVNN1D.
 
-S1 — No inner clamp (laguerre_vnn_1d_s1):
-    Removes the clamp(-20, 20) on the softplus argument inside laguerre_feature.
+S1 — No inner clamp:
+    Removes clamp(-20, 20) on the softplus argument.
     Original: softplus(clamp(z, -20, 20) * alpha)
     S1:       softplus(z * alpha)
-    Rationale: block-input clamping (±50) plus BN normalization already bound z
-    in practice.  The inner clamp adds a stop-gradient discontinuity with no
-    benefit for well-conditioned inputs.
 
-S2 — Shared projection across degrees (laguerre_vnn_1d_s2):
-    Replaces the per-degree Conv1d with a single shared Conv1d; each degree
-    gets its own learnable scale alpha_d (initialized to alpha) so it can
-    still adjust its polynomial range independently.
-    Original: phi_d = BN(L_d(softplus(alpha * W_d * x)))   # W_d separate per d
-    S2:       phi_d = BN(L_d(softplus(alpha_d * W_shared * x)))  # W_shared shared
-    Rationale: cuts (|degrees| - 1) * base_conv_params from every block.
-    At [2,3] degrees and base_ch=8 this saves ~30% of poly-path parameters.
+S2 — Shared projection across degrees:
+    Single shared Conv1d per block; each degree gets a learnable alpha_d.
+    Saves ~53% of poly-path parameters at [2,3,4,5] degrees.
 
-S3 — Scalar gates (laguerre_vnn_1d_s3):
-    Replaces the per-channel gate g_d ∈ R^{C_out} with a scalar g_d ∈ R.
-    Original: out += gate_d.view(1, C, 1) * phi_d   # gate_d shape (C_out,)
-    S3:       out += gate_d * phi_d                  # gate_d shape (1,)
-    Rationale: saves |degrees| * (C_out - 1) parameters per block.  The gate
-    still controls the overall contribution of each polynomial degree; the per-
-    channel modulation is absorbed into the subsequent BN and linear path.
+S3 — Scalar gates:
+    Replaces per-channel gate g_d ∈ R^{C_out} with scalar g_d ∈ R.
+
+S4 — S2 + no inner clamp (shared + noclamp)
+S5 — S3 + no inner clamp (scalar + noclamp)
+
+S6 — Learnable alpha (base):
+    Keeps independent per-degree Conv1d (non-shared) but makes alpha a
+    learnable scalar per degree per block (initialized to the passed alpha).
+    All other details identical to base.
+
+S7 — S4 + S5 combined (shared + scalar + noclamp):
+    Applies all three simplifications simultaneously.  Learnable alpha_d
+    is implicit (shared_proj always creates poly_alphas).
+
+S8 — Learnable alpha + S5 (scalar + noclamp + learnable alpha):
+    Non-shared convolutions (S6 style) with scalar gates and no inner clamp.
+    Tests whether learnable alpha recovers accuracy lost in S5 vs base.
 """
 
 import torch.nn as nn
@@ -53,7 +54,8 @@ class _SimplifiedBackbone1D(nn.Module):
     """
 
     def __init__(self, in_ch: int, base_ch: int, poly_degrees, alpha: float,
-                 use_inner_clamp: bool, shared_proj: bool, scalar_gates: bool):
+                 use_inner_clamp: bool, shared_proj: bool, scalar_gates: bool,
+                 learnable_alpha: bool = False):
         super().__init__()
         c1 = 3 * base_ch
         c2 = 4 * base_ch
@@ -61,26 +63,16 @@ class _SimplifiedBackbone1D(nn.Module):
         c4 = 12 * base_ch
         self.out_ch = c4
 
+        kw = dict(poly_degrees=poly_degrees, alpha=alpha,
+                  use_inner_clamp=use_inner_clamp, shared_proj=shared_proj,
+                  scalar_gates=scalar_gates, learnable_alpha=learnable_alpha)
+
         self.block1 = MultiKernelLaguerreBlock1D(
-            in_ch, ch_per_kernel=base_ch, kernels=[9, 5, 1], stride=2,
-            poly_degrees=poly_degrees, alpha=alpha,
-            use_inner_clamp=use_inner_clamp, shared_proj=shared_proj, scalar_gates=scalar_gates,
+            in_ch, ch_per_kernel=base_ch, kernels=[9, 5, 1], stride=2, **kw,
         )
-        self.block2 = LaguerrePolyBlock1D(
-            c1, c2, stride=2, use_shortcut=True,
-            poly_degrees=poly_degrees, alpha=alpha,
-            use_inner_clamp=use_inner_clamp, shared_proj=shared_proj, scalar_gates=scalar_gates,
-        )
-        self.block3 = LaguerrePolyBlock1D(
-            c2, c3, use_shortcut=True,
-            poly_degrees=poly_degrees, alpha=alpha,
-            use_inner_clamp=use_inner_clamp, shared_proj=shared_proj, scalar_gates=scalar_gates,
-        )
-        self.block4 = LaguerrePolyBlock1D(
-            c3, c4, stride=2, use_shortcut=True,
-            poly_degrees=poly_degrees, alpha=alpha,
-            use_inner_clamp=use_inner_clamp, shared_proj=shared_proj, scalar_gates=scalar_gates,
-        )
+        self.block2 = LaguerrePolyBlock1D(c1, c2, stride=2, use_shortcut=True, **kw)
+        self.block3 = LaguerrePolyBlock1D(c2, c3, use_shortcut=True, **kw)
+        self.block4 = LaguerrePolyBlock1D(c3, c4, stride=2, use_shortcut=True, **kw)
 
     def forward(self, x):
         x = self.block1(x)
@@ -95,12 +87,13 @@ class _SimplifiedVNN1DBase(nn.Module):
 
     def __init__(self, num_classes: int, in_ch: int, base_ch: int,
                  poly_degrees, alpha: float, dropout: float,
-                 use_inner_clamp: bool, shared_proj: bool, scalar_gates: bool):
+                 use_inner_clamp: bool, shared_proj: bool, scalar_gates: bool,
+                 learnable_alpha: bool = False):
         super().__init__()
         self.backbone = _SimplifiedBackbone1D(
             in_ch=in_ch, base_ch=base_ch, poly_degrees=poly_degrees, alpha=alpha,
             use_inner_clamp=use_inner_clamp, shared_proj=shared_proj,
-            scalar_gates=scalar_gates,
+            scalar_gates=scalar_gates, learnable_alpha=learnable_alpha,
         )
         self.pool    = nn.AdaptiveAvgPool1d(1)
         self.dropout = nn.Dropout(dropout)
@@ -247,14 +240,6 @@ class LaguerreVNN1D_S5(_SimplifiedVNN1DBase):
     """LaguerreVNN1D with scalar gates and no inner clamp.
 
     Combines S3 (scalar gates) and S1 (no inner clamp).
-
-    Args:
-        num_classes:  Number of output classes.
-        in_ch:        Input channels.
-        base_ch:      Base channel width (default 8).
-        poly_degrees: Laguerre polynomial degrees.  Default [2, 3].
-        alpha:        Softplus scale.
-        dropout:      Dropout before FC (default 0.5).
     """
 
     def __init__(self, num_classes: int, in_ch: int = 1, base_ch: int = 8,
@@ -264,4 +249,73 @@ class LaguerreVNN1D_S5(_SimplifiedVNN1DBase):
             poly_degrees=poly_degrees if poly_degrees is not None else [2, 3],
             alpha=alpha, dropout=dropout,
             use_inner_clamp=False, shared_proj=False, scalar_gates=True,
+        )
+
+
+# ---------------------------------------------------------------------------
+# S6: Learnable alpha — base architecture with per-degree trained alpha
+# ---------------------------------------------------------------------------
+
+class LaguerreVNN1D_S6(_SimplifiedVNN1DBase):
+    """LaguerreVNN1D with a learnable alpha per polynomial degree.
+
+    Keeps independent per-degree Conv1d (non-shared) but replaces the fixed
+    alpha scalar with a learnable nn.Parameter per degree per block,
+    initialized to the passed alpha value.  All other details identical to base.
+    """
+
+    def __init__(self, num_classes: int, in_ch: int = 1, base_ch: int = 8,
+                 poly_degrees=None, alpha: float = 1.0, dropout: float = 0.5):
+        super().__init__(
+            num_classes=num_classes, in_ch=in_ch, base_ch=base_ch,
+            poly_degrees=poly_degrees if poly_degrees is not None else [2, 3],
+            alpha=alpha, dropout=dropout,
+            use_inner_clamp=True, shared_proj=False, scalar_gates=False,
+            learnable_alpha=True,
+        )
+
+
+# ---------------------------------------------------------------------------
+# S7: S4 + S5 combined — shared proj + scalar gates + no inner clamp
+# ---------------------------------------------------------------------------
+
+class LaguerreVNN1D_S7(_SimplifiedVNN1DBase):
+    """LaguerreVNN1D combining all three simplifications: S2 + S3 + S1.
+
+    Shared projection across degrees (S2), scalar gates (S3), and no inner
+    clamp (S1).  Learnable alpha_d is implicit via shared_proj.
+    Lowest parameter count of all variants.
+    """
+
+    def __init__(self, num_classes: int, in_ch: int = 1, base_ch: int = 8,
+                 poly_degrees=None, alpha: float = 1.0, dropout: float = 0.5):
+        super().__init__(
+            num_classes=num_classes, in_ch=in_ch, base_ch=base_ch,
+            poly_degrees=poly_degrees if poly_degrees is not None else [2, 3],
+            alpha=alpha, dropout=dropout,
+            use_inner_clamp=False, shared_proj=True, scalar_gates=True,
+        )
+
+
+# ---------------------------------------------------------------------------
+# S8: Learnable alpha + S5 — scalar gates + no inner clamp + learnable alpha
+# ---------------------------------------------------------------------------
+
+class LaguerreVNN1D_S8(_SimplifiedVNN1DBase):
+    """LaguerreVNN1D with scalar gates, no inner clamp, and learnable alpha.
+
+    Extends S5 (scalar gates + no inner clamp) by making alpha a learnable
+    parameter per degree per block.  Tests whether learnable alpha can recover
+    accuracy relative to the fixed-alpha S5 baseline.
+    Non-shared convolutions (independent projection per degree, like S5/base).
+    """
+
+    def __init__(self, num_classes: int, in_ch: int = 1, base_ch: int = 8,
+                 poly_degrees=None, alpha: float = 1.0, dropout: float = 0.5):
+        super().__init__(
+            num_classes=num_classes, in_ch=in_ch, base_ch=base_ch,
+            poly_degrees=poly_degrees if poly_degrees is not None else [2, 3],
+            alpha=alpha, dropout=dropout,
+            use_inner_clamp=False, shared_proj=False, scalar_gates=True,
+            learnable_alpha=True,
         )

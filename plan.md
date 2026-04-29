@@ -332,6 +332,9 @@ Run on the standard suite against the Phase 2.5 winner for an apples-to-apples c
 | S3 | `laguerre_vnn_1d_s3` | Scalar gates instead of per-channel | 38K (−0.5%) |
 | S4 | `laguerre_vnn_1d_s4` | S2 + no inner clamp | 18K (−53%) |
 | S5 | `laguerre_vnn_1d_s5` | S3 + no inner clamp | 38K (−0.5%) |
+| S6 | `laguerre_vnn_1d_s6` | Learnable α per degree (non-shared, base topology) | ~38K |
+| S7 | `laguerre_vnn_1d_s7` | S2+S3+S1: shared + scalar gates + no clamp | ~18K |
+| S8 | `laguerre_vnn_1d_s8` | S5 + learnable α (scalar + no clamp + learnable α) | ~38K |
 
 ```bash
 # Base config: D2 winner ([2,3,4,5] α=0.5) — Phase 2.5 Laguerre winner
@@ -358,21 +361,21 @@ python benchmark.py --model laguerre_vnn_1d_s5 --suite standard --wandb_group si
 
 > All 9 standard-suite datasets ran (JV and CT included). UW absent — not in current benchmark suite. Avg = mean over 9.
 
-| Config | Params | ECG | Ford | Wfr | AWR | NAT | JV | Epi | BM | CT | UW | Avg |
-|--------|-------:|----:|-----:|----:|----:|----:|---:|----:|---:|---:|---:|----:|
-| Base (D2) | 38K | **94.0** | 92.8 | 99.4 | 98.0 | **84.4** | **93.8** | 96.4 | **100.0** | 99.1 | — | 95.3 |
-| S1: no inner clamp | 38K | **94.0** | 93.3 | 99.5 | 98.7 | 83.9 | 90.8 | 99.3 | 97.5 | 99.2 | — | 95.1 |
-| S2: shared proj | 18K | 93.9 | **94.1** | 99.5 | **99.7** | 83.9 | 93.2 | 94.9 | **100.0** | 99.2 | — | 95.4 |
-| S3: scalar gates | 38K | 93.8 | 92.7 | **99.5** | **99.7** | **84.4** | 93.5 | **99.3** | **100.0** | **99.2** | — | **95.8** |
-| S4: shared+noclamp | 18K | — | — | — | — | — | — | — | — | — | — | — |
-| S5: scalar+noclamp | 38K | — | — | — | — | — | — | — | — | — | — | — |
+| Config | Params | ECG | Ford | Wfr | AWR | NAT | JV | Epi | BM | CT | Avg |
+|--------|-------:|----:|-----:|----:|----:|----:|---:|----:|---:|---:|----:|
+| Base (D2) | 38K | **94.0** | 92.8 | 99.4 | 98.0 | **84.4** | **93.8** | 96.4 | **100.0** | 99.1 | 95.3 |
+| S1: no inner clamp | 38K | **94.0** | 93.3 | 99.5 | 98.7 | 83.9 | 90.8 | 99.3 | 97.5 | 99.2 | 95.1 |
+| S2: shared proj | 18K | 93.9 | **94.1** | 99.5 | **99.7** | 83.9 | 93.2 | 94.9 | **100.0** | 99.2 | 95.4 |
+| S3: scalar gates | 38K | 93.8 | 92.7 | **99.5** | **99.7** | **84.4** | 93.5 | **99.3** | **100.0** | **99.2** | 95.8 |
+| S4: shared+noclamp | 18K | 93.6 | 93.6 | 99.3 | 99.0 | 82.8 | 90.5 | 97.8 | 100.0 | 99.0 | 95.1 |
+| S5: scalar+noclamp | 38K | 93.8 | 92.9 | **99.7** | **100.0** | **85.6** | 93.8 | 97.8 | **100.0** | 99.2 | **95.9** |
 
-**Key findings (S1–S3):**
-- **S3 (scalar gates) wins at 95.8%** — beats base by 0.5pp with essentially the same param count; scalar gates are simpler and better
-- **S2 (shared proj) is the efficiency winner**: 95.4% with only 18K params (−53% vs base 38K) — nearly no accuracy cost for a major size reduction
-- **S1 (no inner clamp) slightly underperforms**: 95.1% < base 95.3% — the inner clamp on the softplus argument is helping; keep it
-- JV and CT are now stable across all Phase 5 variants (were ERR in Phase 2.5)
-- **S4/S5 pending**: tests whether removing the inner clamp hurts when combined with S2/S3 simplifications, or is neutral (S1 result was marginal)
+**Key findings (all S1–S5):**
+- **S5 (scalar+noclamp) is the standard-suite winner at 95.9%** — removing inner clamp helps scalar gates (+0.1pp vs S3); the clamp was a mild handicap for this variant
+- **S3 (scalar gates) is second at 95.8%** — beats base by 0.5pp with same param count
+- **S2 (shared proj) is the efficiency winner**: 95.4% with only 18K params (−53% vs base 38K)
+- **S4 (shared+noclamp) = 95.1%** — noclamp hurts the shared variant (−0.3pp vs S2); opposite direction from S5
+- **S1 (no inner clamp alone) = 95.1%** — removing the clamp without other changes is mildly negative; the benefit in S5 comes from the interaction with scalar gates
 
 ---
 
@@ -388,12 +391,73 @@ python benchmark.py --model laguerre_vnn_1d_s2 --suite full --wandb_group phase6
   --poly_degrees 2 3 4 5 --alpha 0.5
 ```
 
-### Phase 6 results (fill in after runs)
+### Phase 6 results
 
 > Compare against D2 baseline (85.6% avg, 15 datasets) from Phase 4.
 
-| Config | Params | ECG | Ford | Wfr | AWR | NAT | JV | Epi | BM | CT | UW | FordB | ElecDev | SAD | HB | SCP1 | HMD | Avg |
-|--------|-------:|----:|-----:|----:|----:|----:|---:|----:|---:|---:|---:|------:|--------:|----:|---:|-----:|----:|----:|
-| D2 (base, Phase 4) | 38K | 94.2 | 93.2 | 99.4 | 99.3 | 84.4 | 90.8 | 97.1 | 100.0 | 99.2 | — | 81.0 | 70.3 | 99.5 | 68.8 | 75.4 | 31.1 | 85.6 |
-| S3: scalar gates | 38K | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
-| S2: shared proj | 18K | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| Config | Params | ECG | Ford | Wfr | AWR | NAT | JV | Epi | BM | CT | FordB | ElecDev | SAD | HB | SCP1 | HMD | Avg |
+|--------|-------:|----:|-----:|----:|----:|----:|---:|----:|---:|---:|------:|--------:|----:|---:|-----:|----:|----:|
+| D2 (base, Phase 4) | 38K | 94.2 | 93.2 | 99.4 | 99.3 | 84.4 | 90.8 | 97.1 | 100.0 | 99.2 | 81.0 | 70.3 | 99.5 | 68.8 | 75.4 | 31.1 | 85.6 |
+| S2: shared proj | 18K | 93.9 | 93.6 | 99.5 | 99.0 | 85.6 | 92.4 | 98.5 | 100.0 | 99.2 | 81.8 | 67.1 | 99.6 | 68.3 | 77.1 | 29.7 | **85.7** |
+| S3: scalar gates | 38K | 94.0 | 92.5 | 99.6 | 98.3 | 82.2 | 91.1 | 98.5 | 100.0 | 99.2 | 82.2 | 70.9 | 99.7 | 73.7 | 76.5 | 17.6 | 85.1 |
+
+**Key findings:**
+- **S2 (shared proj, 18K) = 85.7%** — matches D2 baseline (85.6%) at half the parameters; this is the headline efficiency result
+- **S3 (scalar gates, 38K) = 85.1%** — its standard-suite lead (95.8%) does not transfer to the full suite; drops below D2 on harder datasets
+- **HMD (HandMovementDirection)**: S3 collapses to 17.6% vs S2 29.7% and D2 31.1% — scalar gates are harmful on this dataset
+- **NATOPS**: S2 matches IT (85.6%) while S3 regresses to 82.2%; shared projection is more stable across dataset types
+- **S4 and S5 not yet run on full suite** — S5 won standard suite (95.9%); running on full suite is Phase 7
+
+---
+
+## Phase 7: S4/S5 on Full Suite + New S6/S7/S8 Variants
+
+Two threads running in parallel:
+1. **Full-suite validation** of S4 and S5 (complete the noclamp picture from Phase 6)
+2. **New variants** S6/S7/S8 on standard suite first (standard → full if promising)
+
+New variants added:
+- **S6**: learnable α per degree, non-shared (base topology + trainable sharpness)
+- **S7**: shared + scalar gates + no clamp (S4∩S5, lowest param count)
+- **S8**: scalar gates + no clamp + learnable α (S5 + trained sharpness)
+
+```bash
+# Full suite — complete the S4/S5 noclamp picture
+python benchmark.py --model laguerre_vnn_1d_s5 --suite full --wandb_group phase7 --no-wandb \
+  --poly_degrees 2 3 4 5 --alpha 0.5
+
+python benchmark.py --model laguerre_vnn_1d_s4 --suite full --wandb_group phase7 --no-wandb \
+  --poly_degrees 2 3 4 5 --alpha 0.5
+
+# Standard suite — new S6/S7/S8
+python benchmark.py --model laguerre_vnn_1d_s6 --suite standard --wandb_group phase7 --no-wandb \
+  --poly_degrees 2 3 4 5 --alpha 0.5
+
+python benchmark.py --model laguerre_vnn_1d_s7 --suite standard --wandb_group phase7 --no-wandb \
+  --poly_degrees 2 3 4 5 --alpha 0.5
+
+python benchmark.py --model laguerre_vnn_1d_s8 --suite standard --wandb_group phase7 --no-wandb \
+  --poly_degrees 2 3 4 5 --alpha 0.5
+```
+
+### Phase 7 results
+
+> Full-suite baseline: D2 85.6%, S2 85.7%, S3 85.1%. Standard-suite baseline: S5 95.9%.
+
+#### Full suite (S4, S5)
+
+| Config | Params | ECG | Ford | Wfr | AWR | NAT | JV | Epi | BM | CT | FordB | ElecDev | SAD | HB | SCP1 | HMD | Avg |
+|--------|-------:|----:|-----:|----:|----:|----:|---:|----:|---:|---:|------:|--------:|----:|---:|-----:|----:|----:|
+| D2 (base) | 38K | 94.2 | 93.2 | 99.4 | 99.3 | 84.4 | 90.8 | 97.1 | 100.0 | 99.2 | 81.0 | 70.3 | 99.5 | 68.8 | 75.4 | 31.1 | 85.6 |
+| S2 (Phase 6) | 18K | 93.9 | 93.6 | 99.5 | 99.0 | 85.6 | 92.4 | 98.5 | 100.0 | 99.2 | 81.8 | 67.1 | 99.6 | 68.3 | 77.1 | 29.7 | 85.7 |
+| S4: shared+noclamp | 18K | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| S5: scalar+noclamp | 38K | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
+
+#### Standard suite (S6, S7, S8)
+
+| Config | Params | ECG | Ford | Wfr | AWR | NAT | JV | Epi | BM | CT | Avg |
+|--------|-------:|----:|-----:|----:|----:|----:|---:|----:|---:|---:|----:|
+| S5 (ref) | 38K | 93.8 | 92.9 | 99.7 | 100.0 | 85.6 | 93.8 | 97.8 | 100.0 | 99.2 | 95.9 |
+| S6: learnable α | ~38K | — | — | — | — | — | — | — | — | — | — |
+| S7: shared+scalar+noclamp | ~18K | — | — | — | — | — | — | — | — | — | — |
+| S8: scalar+noclamp+learnable α | ~38K | — | — | — | — | — | — | — | — | — | — |
