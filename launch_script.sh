@@ -1,15 +1,15 @@
 #!/bin/bash
-# Phase 4 + Phase 5 (parallel):
-#   GPU A — InceptionTime on full suite            (~120 min)
-#   GPU B — VNN A1 (no cubic) on full suite        (~100 min)
-#   GPU C — Laguerre D2 on full suite              (~130 min)
-#   GPU D — Phase 5 simplification ablations ×4    (~130 min)
-#            (standard suite, base=D2 config)
+# Phase 5b + Phase 6 (parallel):
+#   GPU A — Laguerre S3 (scalar gates) on full suite        (~130 min)
+#   GPU B — Laguerre S2 (shared proj)  on full suite        (~130 min)
+#   GPU D — S4 (shared+noclamp) + S5 (scalar+noclamp)       (~100 min)
+#            on standard suite
 #
-# Prerequisite: download the 6 extra full-suite datasets before running:
-#   python tools/download_ts_datasets.py \
-#     --dataset FordB ElectricDevices SpokenArabicDigits \
-#               Heartbeat SelfRegulationSCP1 HandMovementDirection
+# Phase 4 + Phase 5 (DONE 2026-04-28, logs/20260428_131623/):
+#   IT full: 87.1% avg (15 datasets)
+#   A1 full: 85.5% avg — VNN no-cubic
+#   D2 full: 85.6% avg — Laguerre [2,3,4,5] α=0.5
+#   Base (D2) std: 95.3%, S1: 95.1%, S2: 95.4% (18K), S3: 95.8%
 #
 # Usage:
 #   bash launch_script.sh
@@ -26,8 +26,8 @@ GD=${GPUS[3]}
 LOG_DIR="./logs/$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$LOG_DIR"
 
-FULL_ARGS=(--suite full  --wandb_group phase4 --no-wandb)
-STD_ARGS=(--suite standard --wandb_group phase5_simp --no-wandb)
+FULL_ARGS=(--suite full  --wandb_group phase6 --no-wandb)
+STD_ARGS=(--suite standard --wandb_group phase6_std --no-wandb)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -69,49 +69,37 @@ bench_std() {
 }
 
 # ---------------------------------------------------------------------------
-# GPU A — InceptionTime on full suite
+# GPU A — Laguerre S3 (scalar gates) on full suite
 # ---------------------------------------------------------------------------
 gpu_a_jobs() {
-  echo "[GPU $GA] InceptionTime — full suite ..."
-  bench_full "IT_full" $GA --model inceptiontime
+  echo "[GPU $GA] Laguerre S3 (scalar gates) — full suite ..."
+  bench_full "P6_S3_scalar_full" $GA --model laguerre_vnn_1d_s3 --poly_degrees 2 3 4 5 --alpha 0.5
 }
 
 # ---------------------------------------------------------------------------
-# GPU B — VNN A1 (no cubic) on full suite
+# GPU B — Laguerre S2 (shared proj) on full suite
 # ---------------------------------------------------------------------------
 gpu_b_jobs() {
-  echo "[GPU $GB] VNN A1 (no cubic) — full suite ..."
-  bench_full "A1_vnn_nocubic_full" $GB --model vnn_1d --disable_cubic
+  echo "[GPU $GB] Laguerre S2 (shared proj) — full suite ..."
+  bench_full "P6_S2_shared_full" $GB --model laguerre_vnn_1d_s2 --poly_degrees 2 3 4 5 --alpha 0.5
 }
 
 # ---------------------------------------------------------------------------
-# GPU C — Laguerre D2 on full suite
-# ---------------------------------------------------------------------------
-gpu_c_jobs() {
-  echo "[GPU $GC] Laguerre D2 — full suite ..."
-  bench_full "D2_lag_2345_a05_full" $GC --model laguerre_vnn_1d --poly_degrees 2 3 4 5 --alpha 0.5
-}
-
-# ---------------------------------------------------------------------------
-# GPU D — Phase 5: simplification ablations on standard suite
-#   Base = D2 config ([2,3,4,5] α=0.5)
+# GPU D — Phase 5b: S4 + S5 ablations on standard suite
 # ---------------------------------------------------------------------------
 gpu_d_jobs() {
-  echo "[GPU $GD] Phase 5 simplification ablations — standard suite ..."
-  bench_std "P5_base_D2"   $GD --model laguerre_vnn_1d    --poly_degrees 2 3 4 5 --alpha 0.5
-  bench_std "P5_S1_noclamp" $GD --model laguerre_vnn_1d_s1 --poly_degrees 2 3 4 5 --alpha 0.5
-  bench_std "P5_S2_shared"  $GD --model laguerre_vnn_1d_s2 --poly_degrees 2 3 4 5 --alpha 0.5
-  bench_std "P5_S3_scalar"  $GD --model laguerre_vnn_1d_s3 --poly_degrees 2 3 4 5 --alpha 0.5
+  echo "[GPU $GD] Phase 5b: S4 (shared+noclamp) + S5 (scalar+noclamp) — standard suite ..."
+  bench_std "P5_S4_shared_noclamp" $GD --model laguerre_vnn_1d_s4 --poly_degrees 2 3 4 5 --alpha 0.5
+  bench_std "P5_S5_scalar_noclamp" $GD --model laguerre_vnn_1d_s5 --poly_degrees 2 3 4 5 --alpha 0.5
 }
 
 # ---------------------------------------------------------------------------
-# Launch all GPU streams in parallel
+# Launch all streams in parallel
 # ---------------------------------------------------------------------------
-echo "Phase 4 + Phase 5 — 7 jobs across 4 GPUs"
-echo "  GPU $GA: InceptionTime (full suite)"
-echo "  GPU $GB: VNN A1 no-cubic (full suite)"
-echo "  GPU $GC: Laguerre D2 (full suite)"
-echo "  GPU $GD: Phase 5 simplification ablations x4 (standard suite)"
+echo "Phase 5b + Phase 6 — 4 jobs across 3 GPUs"
+echo "  GPU $GA: Laguerre S3 scalar gates (full suite)"
+echo "  GPU $GB: Laguerre S2 shared proj  (full suite)"
+echo "  GPU $GD: S4 shared+noclamp + S5 scalar+noclamp (standard suite)"
 echo "Logs: $LOG_DIR/"
 echo ""
 echo "Monitor:"
@@ -123,14 +111,11 @@ gpu_a_jobs &
 PID_A=$!
 gpu_b_jobs &
 PID_B=$!
-gpu_c_jobs &
-PID_C=$!
 gpu_d_jobs &
 PID_D=$!
 
 wait $PID_A; SA=$?
 wait $PID_B; SB=$?
-wait $PID_C; SC=$?
 wait $PID_D; SD=$?
 
 # ---------------------------------------------------------------------------
@@ -148,10 +133,9 @@ for log in "$LOG_DIR"/*.log; do
 done | sort
 
 echo ""
-[ $SA -eq 0 ] && echo "GPU $GA (IT full):       done" || echo "GPU $GA (IT full):       had failures"
-[ $SB -eq 0 ] && echo "GPU $GB (A1 full):       done" || echo "GPU $GB (A1 full):       had failures"
-[ $SC -eq 0 ] && echo "GPU $GC (D2 full):       done" || echo "GPU $GC (D2 full):       had failures"
-[ $SD -eq 0 ] && echo "GPU $GD (Phase 5 simp):  done" || echo "GPU $GD (Phase 5 simp):  had failures"
+[ $SA -eq 0 ] && echo "GPU $GA (S3 full):    done" || echo "GPU $GA (S3 full):    had failures"
+[ $SB -eq 0 ] && echo "GPU $GB (S2 full):    done" || echo "GPU $GB (S2 full):    had failures"
+[ $SD -eq 0 ] && echo "GPU $GD (S4+S5 std):  done" || echo "GPU $GD (S4+S5 std):  had failures"
 echo ""
 echo "Logs: $LOG_DIR/"
-echo "Next: fill Phase 4 result table and Phase 5 simplification table in plan.md."
+echo "Next: fill Phase 5 S4/S5 rows and Phase 6 table in plan.md."

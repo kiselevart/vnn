@@ -209,3 +209,59 @@ class LaguerreVNN1D_S3(_SimplifiedVNN1DBase):
             alpha=alpha, dropout=dropout,
             use_inner_clamp=True, shared_proj=False, scalar_gates=True,
         )
+
+
+# ---------------------------------------------------------------------------
+# S4: Shared projection + no inner clamp  (S2 ∩ S1)
+# ---------------------------------------------------------------------------
+
+class LaguerreVNN1D_S4(_SimplifiedVNN1DBase):
+    """LaguerreVNN1D with shared projection and no inner clamp.
+
+    Combines S2 (shared Conv1d across degrees) and S1 (no inner clamp).
+
+    Args:
+        num_classes:  Number of output classes.
+        in_ch:        Input channels.
+        base_ch:      Base channel width (default 8).
+        poly_degrees: Laguerre polynomial degrees.  Default [2, 3].
+        alpha:        Initial value for the per-degree learnable scales alpha_d.
+        dropout:      Dropout before FC (default 0.5).
+    """
+
+    def __init__(self, num_classes: int, in_ch: int = 1, base_ch: int = 8,
+                 poly_degrees=None, alpha: float = 1.0, dropout: float = 0.5):
+        super().__init__(
+            num_classes=num_classes, in_ch=in_ch, base_ch=base_ch,
+            poly_degrees=poly_degrees if poly_degrees is not None else [2, 3],
+            alpha=alpha, dropout=dropout,
+            use_inner_clamp=False, shared_proj=True, scalar_gates=False,
+        )
+
+
+# ---------------------------------------------------------------------------
+# S5: Scalar gates + no inner clamp  (S3 ∩ S1)
+# ---------------------------------------------------------------------------
+
+class LaguerreVNN1D_S5(_SimplifiedVNN1DBase):
+    """LaguerreVNN1D with scalar gates and no inner clamp.
+
+    Combines S3 (scalar gates) and S1 (no inner clamp).
+
+    Args:
+        num_classes:  Number of output classes.
+        in_ch:        Input channels.
+        base_ch:      Base channel width (default 8).
+        poly_degrees: Laguerre polynomial degrees.  Default [2, 3].
+        alpha:        Softplus scale.
+        dropout:      Dropout before FC (default 0.5).
+    """
+
+    def __init__(self, num_classes: int, in_ch: int = 1, base_ch: int = 8,
+                 poly_degrees=None, alpha: float = 1.0, dropout: float = 0.5):
+        super().__init__(
+            num_classes=num_classes, in_ch=in_ch, base_ch=base_ch,
+            poly_degrees=poly_degrees if poly_degrees is not None else [2, 3],
+            alpha=alpha, dropout=dropout,
+            use_inner_clamp=False, shared_proj=False, scalar_gates=True,
+        )

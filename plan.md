@@ -300,13 +300,22 @@ python benchmark.py --model laguerre_vnn_1d --suite full --wandb_group phase4 --
   --poly_degrees 2 3 4 5 --alpha 0.5
 ```
 
-### Phase 4 results (fill in after runs)
+### Phase 4 results
+
+> JV and CT now run successfully (fixed since Phase 2.5). UW absent from all runs — likely dropped from benchmark suite. Avg = mean over 15 available datasets.
 
 | Model | Params | ECG | Ford | Wfr | AWR | NAT | JV | Epi | BM | CT | UW | FordB | ElecDev | SAD | HB | SCP1 | HMD | Avg |
 |-------|-------:|----:|-----:|----:|----:|----:|---:|----:|---:|---:|---:|------:|--------:|----:|---:|-----:|----:|----:|
-| InceptionTime | 460K | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
-| A1: VNN no-cubic | 50K | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
-| D2: Laguerre D2 | 38K | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| InceptionTime | 460K | 93.7 | **95.6** | **99.8** | 98.7 | **87.2** | **96.0** | 97.8 | 97.5 | **99.3** | — | **84.1** | 70.3 | **99.9** | **74.2** | 74.7 | **37.8** | **87.1** |
+| A1: VNN no-cubic | 50K | **94.0** | 93.1 | 99.3 | 98.0 | 85.6 | 90.5 | 94.9 | **100.0** | 99.2 | — | 81.5 | 69.6 | 99.6 | 69.3 | **80.2** | 28.4 | 85.5 |
+| D2: Laguerre D2 | 38K | **94.2** | 93.2 | 99.4 | **99.3** | 84.4 | 90.8 | **97.1** | **100.0** | 99.2 | — | 81.0 | **70.3** | 99.5 | 68.8 | 75.4 | 31.1 | 85.6 |
+
+**Key findings:**
+- IT leads on the full suite (87.1% avg) — advantage concentrated on FordA, JV, and harder datasets
+- A1 and D2 essentially tied (85.5% vs 85.6%), D2 wins on params (38K vs 50K)
+- HMD (HandMovementDirection) crushes all models: IT 37.8%, D2 31.1%, A1 28.4% — likely requires temporal modeling beyond what 1D Conv captures
+- SCP1 (SelfRegulationSCP1): A1 notably stronger (80.2%) vs D2 (75.4%) and IT (74.7%) — one advantage for VNN
+- ElectricDevices hard for all (~70%); Heartbeat hard (~69-74%)
 
 ---
 
@@ -315,12 +324,14 @@ python benchmark.py --model laguerre_vnn_1d --suite full --wandb_group phase4 --
 Three new model types, each applying one structural simplification to LaguerreVNN1D.
 Run on the standard suite against the Phase 2.5 winner for an apples-to-apples comparison.
 
-| Variant | Model name | Change vs base | Params (base_ch=8) |
-|---------|-----------|----------------|--------------------|
-| Base | `laguerre_vnn_1d` | — | 93K |
-| S1 | `laguerre_vnn_1d_s1` | Remove inner clamp on softplus arg | 93K (identical) |
-| S2 | `laguerre_vnn_1d_s2` | Shared Conv1d across degrees + learnable α_d | 66K (−29%) |
-| S3 | `laguerre_vnn_1d_s3` | Scalar gates instead of per-channel | 93K (−0.5%) |
+| Variant | Model name | Change vs base | Params (1-ch ref) |
+|---------|-----------|----------------|-------------------|
+| Base | `laguerre_vnn_1d` | — | 38K |
+| S1 | `laguerre_vnn_1d_s1` | Remove inner clamp on softplus arg | 38K (identical) |
+| S2 | `laguerre_vnn_1d_s2` | Shared Conv1d across degrees + learnable α_d | 18K (−53%) |
+| S3 | `laguerre_vnn_1d_s3` | Scalar gates instead of per-channel | 38K (−0.5%) |
+| S4 | `laguerre_vnn_1d_s4` | S2 + no inner clamp | 18K (−53%) |
+| S5 | `laguerre_vnn_1d_s5` | S3 + no inner clamp | 38K (−0.5%) |
 
 ```bash
 # Base config: D2 winner ([2,3,4,5] α=0.5) — Phase 2.5 Laguerre winner
@@ -335,13 +346,54 @@ python benchmark.py --model laguerre_vnn_1d_s2 --suite standard --wandb_group si
 
 python benchmark.py --model laguerre_vnn_1d_s3 --suite standard --wandb_group simp_ablations --no-wandb \
   --poly_degrees 2 3 4 5 --alpha 0.5
+
+python benchmark.py --model laguerre_vnn_1d_s4 --suite standard --wandb_group simp_ablations --no-wandb \
+  --poly_degrees 2 3 4 5 --alpha 0.5
+
+python benchmark.py --model laguerre_vnn_1d_s5 --suite standard --wandb_group simp_ablations --no-wandb \
+  --poly_degrees 2 3 4 5 --alpha 0.5
 ```
 
-### Simplification ablation results (fill in after runs)
+### Simplification ablation results
+
+> All 9 standard-suite datasets ran (JV and CT included). UW absent — not in current benchmark suite. Avg = mean over 9.
 
 | Config | Params | ECG | Ford | Wfr | AWR | NAT | JV | Epi | BM | CT | UW | Avg |
 |--------|-------:|----:|-----:|----:|----:|----:|---:|----:|---:|---:|---:|----:|
-| Base (D2) | 38K | — | — | — | — | — | — | — | — | — | — | — |
-| S1: no inner clamp | 38K | — | — | — | — | — | — | — | — | — | — | — |
-| S2: shared proj | 27K | — | — | — | — | — | — | — | — | — | — | — |
-| S3: scalar gates | 38K | — | — | — | — | — | — | — | — | — | — | — |
+| Base (D2) | 38K | **94.0** | 92.8 | 99.4 | 98.0 | **84.4** | **93.8** | 96.4 | **100.0** | 99.1 | — | 95.3 |
+| S1: no inner clamp | 38K | **94.0** | 93.3 | 99.5 | 98.7 | 83.9 | 90.8 | 99.3 | 97.5 | 99.2 | — | 95.1 |
+| S2: shared proj | 18K | 93.9 | **94.1** | 99.5 | **99.7** | 83.9 | 93.2 | 94.9 | **100.0** | 99.2 | — | 95.4 |
+| S3: scalar gates | 38K | 93.8 | 92.7 | **99.5** | **99.7** | **84.4** | 93.5 | **99.3** | **100.0** | **99.2** | — | **95.8** |
+| S4: shared+noclamp | 18K | — | — | — | — | — | — | — | — | — | — | — |
+| S5: scalar+noclamp | 38K | — | — | — | — | — | — | — | — | — | — | — |
+
+**Key findings (S1–S3):**
+- **S3 (scalar gates) wins at 95.8%** — beats base by 0.5pp with essentially the same param count; scalar gates are simpler and better
+- **S2 (shared proj) is the efficiency winner**: 95.4% with only 18K params (−53% vs base 38K) — nearly no accuracy cost for a major size reduction
+- **S1 (no inner clamp) slightly underperforms**: 95.1% < base 95.3% — the inner clamp on the softplus argument is helping; keep it
+- JV and CT are now stable across all Phase 5 variants (were ERR in Phase 2.5)
+- **S4/S5 pending**: tests whether removing the inner clamp hurts when combined with S2/S3 simplifications, or is neutral (S1 result was marginal)
+
+---
+
+## Phase 6: Simplification Winners on Full Suite
+
+Validates that S3 (scalar gates) and S2 (shared proj) gains hold across all 15 datasets.
+
+```bash
+python benchmark.py --model laguerre_vnn_1d_s3 --suite full --wandb_group phase6 --no-wandb \
+  --poly_degrees 2 3 4 5 --alpha 0.5
+
+python benchmark.py --model laguerre_vnn_1d_s2 --suite full --wandb_group phase6 --no-wandb \
+  --poly_degrees 2 3 4 5 --alpha 0.5
+```
+
+### Phase 6 results (fill in after runs)
+
+> Compare against D2 baseline (85.6% avg, 15 datasets) from Phase 4.
+
+| Config | Params | ECG | Ford | Wfr | AWR | NAT | JV | Epi | BM | CT | UW | FordB | ElecDev | SAD | HB | SCP1 | HMD | Avg |
+|--------|-------:|----:|-----:|----:|----:|----:|---:|----:|---:|---:|---:|------:|--------:|----:|---:|-----:|----:|----:|
+| D2 (base, Phase 4) | 38K | 94.2 | 93.2 | 99.4 | 99.3 | 84.4 | 90.8 | 97.1 | 100.0 | 99.2 | — | 81.0 | 70.3 | 99.5 | 68.8 | 75.4 | 31.1 | 85.6 |
+| S3: scalar gates | 38K | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| S2: shared proj | 18K | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |

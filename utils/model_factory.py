@@ -22,7 +22,7 @@ from network.video_higher_order import (
 )
 
 from network.video import vnn_fusion_highQv2
-from network.timeseries import VNN1D, LaguerreVNN1D, LaguerreVNN1D_S1, LaguerreVNN1D_S2, LaguerreVNN1D_S3
+from network.timeseries import VNN1D, LaguerreVNN1D, LaguerreVNN1D_S1, LaguerreVNN1D_S2, LaguerreVNN1D_S3, LaguerreVNN1D_S4, LaguerreVNN1D_S5
 
 
 def get_model(args, device):
@@ -190,10 +190,13 @@ def get_model(args, device):
                 poly_degrees=getattr(args, "poly_degrees", None),
                 alpha=getattr(args, "alpha", 1.0),
             )
-        elif args.model in ("laguerre_vnn_1d_s1", "laguerre_vnn_1d_s2", "laguerre_vnn_1d_s3"):
+        elif args.model in ("laguerre_vnn_1d_s1", "laguerre_vnn_1d_s2", "laguerre_vnn_1d_s3",
+                            "laguerre_vnn_1d_s4", "laguerre_vnn_1d_s5"):
             _cls = {"laguerre_vnn_1d_s1": LaguerreVNN1D_S1,
                     "laguerre_vnn_1d_s2": LaguerreVNN1D_S2,
-                    "laguerre_vnn_1d_s3": LaguerreVNN1D_S3}[args.model]
+                    "laguerre_vnn_1d_s3": LaguerreVNN1D_S3,
+                    "laguerre_vnn_1d_s4": LaguerreVNN1D_S4,
+                    "laguerre_vnn_1d_s5": LaguerreVNN1D_S5}[args.model]
             net = _cls(
                 num_classes=args.num_classes,
                 in_ch=in_ch,
