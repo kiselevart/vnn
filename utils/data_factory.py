@@ -179,12 +179,14 @@ def get_dataloaders(args):
     elif args.task == "video":
         # Dataset instantiation
         clip_len = getattr(args, "clip_len", 16)
+        ucf_split = getattr(args, "ucf_split", 1)
         train_ds = VideoDataset(
             dataset=args.dataset,
             split="train",
             clip_len=clip_len,
             preprocess=False,
             augment=True,
+            ucf_split=ucf_split,
         )
         val_ds = VideoDataset(
             dataset=args.dataset,
@@ -192,6 +194,7 @@ def get_dataloaders(args):
             clip_len=clip_len,
             preprocess=False,
             augment=False,
+            ucf_split=ucf_split,
         )
         test_ds = VideoDataset(
             dataset=args.dataset,
@@ -199,6 +202,7 @@ def get_dataloaders(args):
             clip_len=clip_len,
             preprocess=False,
             augment=False,
+            ucf_split=ucf_split,
         )
 
         if "fusion" in args.model:

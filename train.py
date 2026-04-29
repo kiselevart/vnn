@@ -54,6 +54,10 @@ def parse_args():
                         help="Gaussian noise std for timeseries jitter augmentation.")
     parser.add_argument("--wandb_group", type=str, default=None,
                         help="W&B group name to cluster related runs (e.g. a benchmark sweep).")
+    parser.add_argument("--split", type=int, default=1, choices=[1, 2, 3],
+                        help="UCF101/HMDB51 official dataset split number (1–3). Default: 1.")
+    parser.add_argument("--avg_splits", action="store_true",
+                        help="Train on all 3 UCF101/HMDB51 splits sequentially and report the mean test accuracy.")
 
     # Logging & System
     parser.add_argument("--num_workers", type=int, default=16)
@@ -76,7 +80,8 @@ def parse_args():
         else:
             args.task = "timeseries"
     args.num_classes = _ds_classes.get(args.dataset, None)  # None for UCR (set later from data)
-    
+    args.ucf_split = args.split  # propagated to VideoDataset via data_factory
+
     return args
 
 class Trainer:
@@ -312,13 +317,20 @@ class Trainer:
             res["nan_grad_batches"] = stats["nan_grad_batches"]
         return res
 
+    def _load_best_model(self):
+        best_ckpt = os.path.join(self.out_dir, "checkpoints", "best_model.pth")
+        if os.path.exists(best_ckpt):
+            ckpt = torch.load(best_ckpt, map_location=self.device)
+            self.model.load_state_dict(ckpt["state_dict"])
+            print(f"==> Loaded best checkpoint (val acc {self.best_acc:.2f}%) for test evaluation.")
+
     def run(self):
         if self.args.test_only:
             print(f"==> Running Test Evaluation...")
             test_stats = self._run_epoch(0, "test")
             print(f"Test Result | Loss: {test_stats['loss']:.3f} | Acc: {test_stats['acc']:.2f}%")
             self.wandb.finish()
-            return
+            return test_stats["acc"]
 
         start_time_total = time.time()
         for epoch in range(self.start_epoch, self.args.epochs):
@@ -371,11 +383,35 @@ class Trainer:
         self.wandb.summary["total_runtime_sec"] = total_runtime
         print(f"==> Training Complete. Total Runtime: {total_runtime/60:.2f} mins")
 
+        self._load_best_model()
         print(f"==> Running Final Test Evaluation...")
         test_stats = self._run_epoch(self.args.epochs - 1, "test")
         print(f"Test Result | Loss: {test_stats['loss']:.3f} | Acc: {test_stats['acc']:.2f}%")
         self.wandb.summary.update({f"test/{k}": v for k, v in test_stats.items()})
         self.wandb.finish()
+        return test_stats["acc"]
 
 if __name__ == "__main__":
-    Trainer(parse_args()).run()
+    args = parse_args()
+
+    if args.avg_splits and args.task == "video":
+        if args.resume:
+            raise ValueError("--resume cannot be used together with --avg_splits.")
+        base_run_name = args.run_name
+        # Group all 3 split runs together in W&B automatically.
+        if args.wandb_group is None:
+            args.wandb_group = base_run_name
+        test_accs = []
+        for s in [1, 2, 3]:
+            args.ucf_split = s
+            args.run_name = f"{base_run_name}_s{s}"
+            acc = Trainer(args).run()
+            test_accs.append(acc)
+        mean_acc = sum(test_accs) / 3
+        split_str = " | ".join(f"S{i+1}: {a:.2f}%" for i, a in enumerate(test_accs))
+        print(f"\n{'='*60}")
+        print(f"3-Split Results: {split_str}")
+        print(f"3-Split Mean Accuracy: {mean_acc:.2f}%")
+        print(f"{'='*60}")
+    else:
+        Trainer(args).run()

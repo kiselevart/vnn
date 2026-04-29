@@ -25,8 +25,15 @@ class VideoDataset(Dataset):
             preprocess (bool): Determines whether to preprocess dataset. Default is False.
     """
 
-    def __init__(self, dataset='ucf101', split='train', clip_len=16, preprocess=False, augment=True):
-        self.root_dir, self.output_dir = Path.db_dir(dataset)
+    def __init__(self, dataset='ucf101', split='train', clip_len=16, preprocess=False, augment=True, ucf_split=1):
+        self.root_dir, base_output_dir = Path.db_dir(dataset)
+        # UCF101 and HMDB51 have 3 official splits; store each split's frames separately
+        # so multiple splits can coexist on disk without re-extraction.
+        if dataset.lower() in ('ucf101', 'hmdb51'):
+            self.output_dir = os.path.join(base_output_dir, f'split{ucf_split}')
+        else:
+            self.output_dir = base_output_dir
+        self.ucf_split = ucf_split
         folder = os.path.join(self.output_dir, split)
         self.clip_len = clip_len
         self.split = split
@@ -162,8 +169,8 @@ class VideoDataset(Dataset):
         for split in ['train', 'val', 'test']:
             os.makedirs(os.path.join(self.output_dir, split), exist_ok=True)
 
-        train_list = os.path.join(self.root_dir, 'ucfTrainTestlist', 'trainlist01.txt')
-        test_list  = os.path.join(self.root_dir, 'ucfTrainTestlist', 'testlist01.txt')
+        train_list = os.path.join(self.root_dir, 'ucfTrainTestlist', f'trainlist0{self.ucf_split}.txt')
+        test_list  = os.path.join(self.root_dir, 'ucfTrainTestlist', f'testlist0{self.ucf_split}.txt')
         if os.path.exists(train_list) and os.path.exists(test_list):
             # Official UCF101 splits — group-aware, no performer leakage
             self._preprocess_official_splits(train_list, test_list)
