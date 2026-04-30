@@ -20,7 +20,7 @@ def parse_args():
     # Core Training Args
     parser.add_argument("--dataset", type=str, required=True,
                         help="Dataset name: cifar10 | ucf101 | hmdb51 | ucf10 | ucf11 | <UCR/UEA dataset name>")
-    parser.add_argument("--task", type=str, default=None, choices=["cifar", "video", "timeseries"],
+    parser.add_argument("--task", type=str, default=None, choices=["cifar", "video", "timeseries", "mnist"],
                         help="Task type. Auto-detected from --dataset if not set.")
     parser.add_argument("--model", type=str, required=True)
     parser.add_argument("--epochs", type=int, default=100)
@@ -71,10 +71,12 @@ def parse_args():
     
     # Auto-determine Task and Classes
     _video_ds   = {"ucf10", "ucf11", "ucf101", "hmdb51"}
-    _ds_classes = {"cifar10": 10, "ucf11": 11, "ucf101": 101, "hmdb51": 51, "ucf10": 10}
+    _ds_classes = {"cifar10": 10, "ucf11": 11, "ucf101": 101, "hmdb51": 51, "ucf10": 10, "mnist": 10}
     if args.task is None:
         if args.dataset == "cifar10":
             args.task = "cifar"
+        elif args.dataset == "mnist":
+            args.task = "mnist"
         elif args.dataset in _video_ds:
             args.task = "video"
         else:
@@ -153,7 +155,7 @@ class Trainer:
         atexit.register(lambda: self.wandb.finish() if self.wandb else None)
 
     def _setup_optimizer(self, args):
-        if args.task in ("video", "timeseries"):
+        if args.task in ("video", "timeseries", "mnist"):
             get_1x = getattr(self.model, "get_1x_lr_params", None)
             get_10x = getattr(self.model, "get_10x_lr_params", None)
 

@@ -225,6 +225,24 @@ def get_model(args, device):
         else:
             raise ValueError(f"Unknown timeseries model: {args.model}")
 
+    elif args.task == "mnist":
+        from network.mnist import TinyCNN, TinyVNN, TinyLaguerreVNN
+        nc = getattr(args, "num_classes", 10)
+        ch = getattr(args, "base_ch", 8)
+        if args.model == "tiny_cnn":
+            net = TinyCNN(num_classes=nc, base_ch=ch)
+        elif args.model == "tiny_vnn":
+            net = TinyVNN(num_classes=nc, base_ch=ch)
+        elif args.model == "tiny_laguerre":
+            net = TinyLaguerreVNN(
+                num_classes=nc,
+                base_ch=ch,
+                poly_degrees=getattr(args, "poly_degrees", [2, 3]),
+                alpha=getattr(args, "alpha", 0.5),
+            )
+        else:
+            raise ValueError(f"Unknown MNIST model: {args.model}")
+
     else:
         raise ValueError(f"Unknown task: {args.task}")
 

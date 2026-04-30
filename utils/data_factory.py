@@ -236,6 +236,43 @@ def get_dataloaders(args):
             **worker_kwargs,
         )
 
+    elif args.task == "mnist":
+        transform_train = transforms.Compose([
+            transforms.RandomAffine(degrees=10, translate=(0.1, 0.1)),
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (0.3081,)),
+        ])
+        transform_test = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (0.3081,)),
+        ])
+
+        full_train = torchvision.datasets.MNIST(
+            root="./data", train=True,  download=True, transform=transform_train)
+        full_train_val = torchvision.datasets.MNIST(
+            root="./data", train=True,  download=True, transform=transform_test)
+        testset = torchvision.datasets.MNIST(
+            root="./data", train=False, download=True, transform=transform_test)
+
+        args.num_classes = 10
+
+        val_split = getattr(args, "val_split", 0.1)
+        val_size  = int(len(full_train) * val_split)
+        generator = torch.Generator().manual_seed(getattr(args, "seed", 42))
+        indices   = torch.randperm(len(full_train), generator=generator).tolist()
+        trainset  = torch.utils.data.Subset(full_train,     indices[val_size:])
+        valset    = torch.utils.data.Subset(full_train_val, indices[:val_size])
+
+        loaders["train"] = DataLoader(
+            trainset, batch_size=args.batch_size, shuffle=True,
+            num_workers=args.num_workers, pin_memory=pin_memory, **worker_kwargs)
+        loaders["val"] = DataLoader(
+            valset,   batch_size=256, shuffle=False,
+            num_workers=args.num_workers, pin_memory=pin_memory, **worker_kwargs)
+        loaders["test"] = DataLoader(
+            testset,  batch_size=256, shuffle=False,
+            num_workers=args.num_workers, pin_memory=pin_memory, **worker_kwargs)
+
     elif args.task == "timeseries":
         ucr_root = os.environ.get("UCR_ROOT", "./data/ucr")
         X_train, y_train, X_test, y_test, num_classes, in_ch = load_ucr_dataset(
