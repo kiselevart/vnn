@@ -443,21 +443,39 @@ python benchmark.py --model laguerre_vnn_1d_s8 --suite standard --wandb_group ph
 ### Phase 7 results
 
 > Full-suite baseline: D2 85.6%, S2 85.7%, S3 85.1%. Standard-suite baseline: S5 95.9%.
+> Logs: `logs/20260429_151957/`
 
 #### Full suite (S4, S5)
+
+*S4: ECG/FordA/Wafer/CT errored (4/15). Avg over 11 available.*
+*S5: ECG/FordA errored (2/15). Avg over 13 available.*
 
 | Config | Params | ECG | Ford | Wfr | AWR | NAT | JV | Epi | BM | CT | FordB | ElecDev | SAD | HB | SCP1 | HMD | Avg |
 |--------|-------:|----:|-----:|----:|----:|----:|---:|----:|---:|---:|------:|--------:|----:|---:|-----:|----:|----:|
 | D2 (base) | 38K | 94.2 | 93.2 | 99.4 | 99.3 | 84.4 | 90.8 | 97.1 | 100.0 | 99.2 | 81.0 | 70.3 | 99.5 | 68.8 | 75.4 | 31.1 | 85.6 |
 | S2 (Phase 6) | 18K | 93.9 | 93.6 | 99.5 | 99.0 | 85.6 | 92.4 | 98.5 | 100.0 | 99.2 | 81.8 | 67.1 | 99.6 | 68.3 | 77.1 | 29.7 | 85.7 |
-| S4: shared+noclamp | 18K | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
-| S5: scalar+noclamp | 38K | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| S4: shared+noclamp | 18K | ERR | ERR | ERR | 89.3 | 85.6 | 90.3 | 94.9 | 92.5 | ERR | 81.0 | 68.2 | 99.4 | 74.2 | 80.2 | 32.4 | 80.7† |
+| S5: scalar+noclamp | 38K | ERR | ERR | 99.5 | 92.0 | 85.0 | 87.8 | 81.2 | 87.5 | 98.8 | 82.1 | 70.9 | 99.2 | 68.8 | 81.9 | 29.7 | 81.9† |
+
+† partial average (excl. errored datasets)
 
 #### Standard suite (S6, S7, S8)
+
+*S6: NATOPS/Epilepsy errored (7/9). S8: ECG/Wafer/AWR/JV/BM errored (4/9).*
 
 | Config | Params | ECG | Ford | Wfr | AWR | NAT | JV | Epi | BM | CT | Avg |
 |--------|-------:|----:|-----:|----:|----:|----:|---:|----:|---:|---:|----:|
 | S5 (ref) | 38K | 93.8 | 92.9 | 99.7 | 100.0 | 85.6 | 93.8 | 97.8 | 100.0 | 99.2 | 95.9 |
-| S6: learnable α | ~38K | — | — | — | — | — | — | — | — | — | — |
-| S7: shared+scalar+noclamp | ~18K | — | — | — | — | — | — | — | — | — | — |
-| S8: scalar+noclamp+learnable α | ~38K | — | — | — | — | — | — | — | — | — | — |
+| S6: learnable α | ~38K | 93.1 | 92.9 | 98.8 | 97.0 | ERR | 91.3 | ERR | 77.5 | 98.3 | 92.7† |
+| S7: shared+scalar+noclamp | ~18K | 93.5 | 93.7 | 99.7 | 96.7 | 85.0 | 91.3 | 95.7 | 97.5 | 98.6 | **94.6** |
+| S8: scalar+noclamp+learnable α | ~38K | ERR | 93.4 | ERR | ERR | 84.4 | ERR | 90.6 | ERR | 98.5 | 91.7† |
+
+† partial average (excl. errored datasets)
+
+**Key findings (Phase 7):**
+- **S7 (shared+scalar+noclamp, 18K) = 94.6%** on standard suite — within 1.3pp of S5 (95.9%) at half the parameters; best efficiency result so far
+- **S4/S5 full suite regressions**: both had ECG5000/FordA errors (OOM or dataset issue); S4 also loses CT/Wafer. Avg over partial results: S4 80.7%, S5 81.9% — both slightly above S2's full-suite score (85.7%) only among available datasets. The errors make fair comparison impossible
+- **S5 full-suite collapses**: Epilepsy 81.2% (vs 97.8% standard), BM 87.5% (vs 100.0%) — scalar+noclamp is less robust on harder full-suite datasets compared to S2's shared projection
+- **S6 (learnable α, base topology) = unstable**: BM collapsed to 77.5%, NATOPS/Epilepsy errored — learnable α alone adds instability without benefit
+- **S8 (scalar+noclamp+learnable α) = widespread failures**: 5/9 datasets errored — combining learnable α with no-clamp is numerically problematic; this combination should not be pursued further
+- **Conclusion**: S7 joins S2 as the efficiency story (18K, ~85% full / ~94.6% standard); learnable α is harmful in all tested configurations

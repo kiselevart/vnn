@@ -171,14 +171,22 @@ class VideoDataset(Dataset):
 
         train_list = os.path.join(self.root_dir, 'ucfTrainTestlist', f'trainlist0{self.ucf_split}.txt')
         test_list  = os.path.join(self.root_dir, 'ucfTrainTestlist', f'testlist0{self.ucf_split}.txt')
+        hmdb_splits_dir = os.path.join(self.root_dir, 'testTrainMulti_7030_splits')
+
         if os.path.exists(train_list) and os.path.exists(test_list):
-            # Official UCF101 splits — group-aware, no performer leakage
+            # UCF101 official splits — group-aware, no performer leakage
             self._preprocess_official_splits(train_list, test_list)
+        elif os.path.isdir(hmdb_splits_dir):
+            # HMDB51 official split files alongside raw videos
+            self._preprocess_hmdb51_splits(hmdb_splits_dir)
         elif self.pre_split:
             # Data already split into train/val/test with class subfolders of videos
             self._preprocess_pre_split()
+        elif self._is_preextracted_frames():
+            # Pre-extracted JPEG frames (e.g. Kaggle HMDB51): resize and randomly split
+            self._preprocess_from_frames()
         else:
-            # Flat class folders — split ourselves (not recommended for UCF101)
+            # Flat class folders of raw videos — random split
             self._preprocess_flat()
 
         print('Preprocessing finished.')
@@ -365,6 +373,126 @@ class VideoDataset(Dataset):
 
                 for video in test:
                     self.process_video(video, file, test_dir)
+
+    def _is_preextracted_frames(self):
+        """Return True if root_dir holds class→video_dir→jpg frames (no raw video files at class level)."""
+        for cls in sorted(os.listdir(self.root_dir)):
+            cls_dir = os.path.join(self.root_dir, cls)
+            if not os.path.isdir(cls_dir):
+                continue
+            for item in sorted(os.listdir(cls_dir)):
+                item_path = os.path.join(cls_dir, item)
+                if os.path.isdir(item_path):
+                    if any(f.endswith('.jpg') for f in os.listdir(item_path)):
+                        return True
+                elif self._is_video_file(item_path):
+                    return False
+            break  # Only probe the first class
+        return False
+
+    def _resize_frames_to_dir(self, src_dir, dst_dir):
+        """Resize all jpg frames from src_dir to resize_height×resize_width and write to dst_dir."""
+        frames = sorted(f for f in os.listdir(src_dir) if f.endswith('.jpg'))
+        if not frames:
+            return
+        os.makedirs(dst_dir, exist_ok=True)
+        for i, fname in enumerate(frames):
+            img = cv2.imread(os.path.join(src_dir, fname))
+            if img is None:
+                continue
+            if img.shape[0] != self.resize_height or img.shape[1] != self.resize_width:
+                img = cv2.resize(img, (self.resize_width, self.resize_height))
+            cv2.imwrite(os.path.join(dst_dir, f'{i:05d}.jpg'), img)
+
+    def _preprocess_from_frames(self):
+        """Preprocess a pre-extracted frame dataset (class/video_dir/jpg).
+
+        Resizes frames to resize_height×resize_width, splits 70/10/20 into
+        train/val/test using a seed derived from ucf_split so different split
+        numbers yield different random partitions.
+        """
+        # Seed varies per ucf_split so --avg_splits gives 3 independent partitions.
+        rng = np.random.RandomState(42 + self.ucf_split)
+
+        for cls in tqdm(sorted(os.listdir(self.root_dir)), desc="Preprocessing HMDB51 classes"):
+            cls_dir = os.path.join(self.root_dir, cls)
+            if not os.path.isdir(cls_dir):
+                continue
+
+            video_dirs = sorted(
+                d for d in os.listdir(cls_dir)
+                if os.path.isdir(os.path.join(cls_dir, d))
+            )
+            if not video_dirs:
+                continue
+
+            video_dirs = list(rng.permutation(video_dirs))
+            n = len(video_dirs)
+            n_test = max(1, int(n * 0.2))
+            n_val  = max(1, int(n * 0.1))
+            splits_map = [
+                ('test',  video_dirs[:n_test]),
+                ('val',   video_dirs[n_test:n_test + n_val]),
+                ('train', video_dirs[n_test + n_val:]),
+            ]
+
+            for split_name, dirs in splits_map:
+                split_cls_dir = os.path.join(self.output_dir, split_name, cls)
+                os.makedirs(split_cls_dir, exist_ok=True)
+                for vid_dir in dirs:
+                    src = os.path.join(cls_dir, vid_dir)
+                    dst = os.path.join(split_cls_dir, vid_dir)
+                    if os.path.exists(dst):
+                        continue
+                    self._resize_frames_to_dir(src, dst)
+                    self._compute_and_save_flow(dst)
+
+    def _preprocess_hmdb51_splits(self, splits_dir):
+        """Preprocess HMDB51 using official per-class split files.
+
+        Split file format (one file per class per split):
+          testTrainMulti_7030_splits/<class>_test_split{N}.txt
+          Each line: 'video.avi 1' (train), 'video.avi 2' (test), 'video.avi 0' (unused)
+        """
+        train_entries, test_entries = [], []
+
+        for cls in sorted(os.listdir(self.root_dir)):
+            cls_dir = os.path.join(self.root_dir, cls)
+            if not os.path.isdir(cls_dir):
+                continue
+            split_file = os.path.join(splits_dir, f'{cls}_test_split{self.ucf_split}.txt')
+            if not os.path.exists(split_file):
+                continue
+            with open(split_file) as f:
+                for line in f:
+                    parts = line.strip().split()
+                    if len(parts) < 2:
+                        continue
+                    vid, marker = parts[0], int(parts[1])
+                    if marker == 1:
+                        train_entries.append((cls, vid))
+                    elif marker == 2:
+                        test_entries.append((cls, vid))
+
+        # Stratified val carve from train (per class, 15%)
+        rng = np.random.RandomState(42)
+        class_trains = defaultdict(list)
+        for cls, vid in train_entries:
+            class_trains[cls].append(vid)
+        final_train, final_val = [], []
+        for cls in sorted(class_trains):
+            vids = class_trains[cls]
+            rng.shuffle(vids)
+            n_val = max(1, int(len(vids) * 0.15))
+            final_val.extend((cls, v) for v in vids[:n_val])
+            final_train.extend((cls, v) for v in vids[n_val:])
+
+        for split_name, entries in [('train', final_train), ('val', final_val), ('test', test_entries)]:
+            print(f'  {split_name}: {len(entries)} videos')
+            for cls, vid in tqdm(entries, desc=f'Processing {split_name}'):
+                save_dir = os.path.join(self.output_dir, split_name, cls)
+                os.makedirs(save_dir, exist_ok=True)
+                self.process_video(vid, cls, save_dir)
 
     def process_video(self, video, action_name, save_dir):
         """Extract and resize frames from a video file.
