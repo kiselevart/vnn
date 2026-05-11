@@ -497,7 +497,16 @@ class VideoDataset(Dataset):
             for cls, vid in tqdm(entries, desc=f'Processing {split_name}'):
                 save_dir = os.path.join(self.output_dir, split_name, cls)
                 os.makedirs(save_dir, exist_ok=True)
-                self.process_video(vid, cls, save_dir)
+                vid_stem = os.path.splitext(vid)[0]
+                src_frames = os.path.join(self.root_dir, cls, vid_stem)
+                if os.path.isdir(src_frames):
+                    # Pre-extracted frames layout: root/class/video_stem/frame.jpg
+                    dst = os.path.join(save_dir, vid_stem)
+                    if not os.path.exists(dst):
+                        self._resize_frames_to_dir(src_frames, dst)
+                        self._compute_and_save_flow(dst)
+                else:
+                    self.process_video(vid, cls, save_dir)
 
     def process_video(self, video, action_name, save_dir):
         """Extract and resize frames from a video file.
