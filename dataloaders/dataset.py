@@ -77,7 +77,7 @@ class VideoDataset(Dataset):
                 if not os.path.isdir(fpath):
                     continue
                 n_frames = sum(1 for f in os.listdir(fpath) if f.endswith('.jpg'))
-                if n_frames < self.clip_len:
+                if n_frames < 2:
                     skipped += 1
                     continue
                 self.fnames.append(fpath)
@@ -85,7 +85,7 @@ class VideoDataset(Dataset):
 
         assert len(labels) == len(self.fnames)
         if skipped:
-            print(f'  [INFO] Skipped {skipped} videos with fewer than {self.clip_len} frames.')
+            print(f'  [INFO] Skipped {skipped} videos with fewer than 2 frames.')
         print('Number of {} videos: {:d}'.format(split, len(self.fnames)))
 
         # Prepare a mapping between the label names (strings) and indices (ints).
