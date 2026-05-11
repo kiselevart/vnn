@@ -10,18 +10,20 @@ import torch.nn.functional as F
 # ---------------------------------------------------------------------------
 
 def _laguerre_poly(n: int, t: torch.Tensor) -> torch.Tensor:
-    """Evaluate L_n(t) elementwise using explicit closed-form expressions.
+    """Evaluate L_n(t) elementwise via three-term recurrence.
 
-    Supports degrees 0–5, which covers all practical toy-model configs.
-    Orthogonal on [0, ∞) under the e^{-t} measure.
+    L_0 = 1,  L_1 = 1 - t,  L_k = ((2k-1-t)·L_{k-1} - (k-1)·L_{k-2}) / k
     """
-    if n == 0: return torch.ones_like(t)
-    if n == 1: return 1.0 - t
-    if n == 2: return (t**2 - 4*t + 2) / 2
-    if n == 3: return (-t**3 + 9*t**2 - 18*t + 6) / 6
-    if n == 4: return (t**4 - 16*t**3 + 72*t**2 - 96*t + 24) / 24
-    if n == 5: return (-t**5 + 25*t**4 - 200*t**3 + 600*t**2 - 600*t + 120) / 120
-    raise ValueError(f"Degree {n} not implemented — add the explicit formula.")
+    if n == 0:
+        return torch.ones_like(t)
+    L2 = torch.ones_like(t)
+    L1 = 1.0 - t
+    if n == 1:
+        return L1
+    for k in range(2, n + 1):
+        L0 = ((2 * k - 1 - t) * L1 - (k - 1) * L2) / k
+        L2, L1 = L1, L0
+    return L1
 
 
 def _laguerre_feature(z: torch.Tensor, degree: int, alpha: float | torch.Tensor) -> torch.Tensor:

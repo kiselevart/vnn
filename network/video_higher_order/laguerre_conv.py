@@ -41,8 +41,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .volterra_blocks import ClassifierHead
-from .lvn_blocks import lvn_signed, soft_clamp
+from .volterra_blocks import ClassifierHead, volterra_quadratic
+from .lvn_blocks import soft_clamp
 
 
 # ---------------------------------------------------------------------------
@@ -173,7 +173,7 @@ class LaguerreVolterraBlock3D(nn.Module):
     kernel parameterisation, making it a clean ablation target.
 
     Linear path   : LaguerreConv3d or Conv3d (in_ch, out_ch)
-    Quadratic path: same conv type (in_ch, 2*Q*out_ch) → lvn_signed interaction
+    Quadratic path: same conv type (in_ch, 2*Q*out_ch) → volterra_quadratic interaction
 
     Args:
         in_ch, out_ch      : Channel dimensions.
@@ -234,7 +234,7 @@ class LaguerreVolterraBlock3D(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x   = soft_clamp(x) if self.use_soft_clamp else x
         out = self.bn_lin(self.conv_lin(x))
-        q   = self.bn_quad(lvn_signed(self.conv_quad(x), self.Q, self.out_ch))
+        q   = self.bn_quad(volterra_quadratic(self.conv_quad(x), self.Q, self.out_ch))
         out = out + self.quad_gate.view(1, -1, 1, 1, 1) * q
         if self.use_shortcut:
             out = self.shortcut(x) + out
@@ -289,7 +289,7 @@ class LaguerreMultiKernelBlock3D(nn.Module):
         x    = soft_clamp(x) if self.use_soft_clamp else x
         lin  = self.bn_lin(torch.cat([c(x) for c in self.lin_convs], dim=1))
         quad = self.bn_quad(torch.cat(
-            [lvn_signed(c(x), self.Q, self.ch_per_kernel) for c in self.quad_convs],
+            [volterra_quadratic(c(x), self.Q, self.ch_per_kernel) for c in self.quad_convs],
             dim=1,
         ))
         out  = lin + self.quad_gate.view(1, -1, 1, 1, 1) * quad
@@ -374,7 +374,7 @@ class LaguerreRgb(nn.Module):
 
 
 class LaguFusion(nn.Module):
-    """Two-stream Laguerre-VNN fusion.  Cross term uses signed-Gaussian decay."""
+    """Two-stream Laguerre-VNN fusion.  Cross term is a pure Volterra quadratic product."""
 
     def __init__(self, num_classes: int, N_lag: int | None = None, alpha: float = 1.0,
                  clip_len: int = 16, use_laguerre_basis: bool = True):
@@ -391,8 +391,7 @@ class LaguFusion(nn.Module):
         rgb, flow = x
         out_rgb = self.model_rgb(rgb)
         out_of  = self.model_of(flow)
-        decay   = torch.exp(-0.25 * (out_rgb.pow(2) + out_of.pow(2)))
-        cross   = self.cross_bn(out_rgb * out_of * decay)
+        cross   = self.cross_bn((out_rgb * out_of).clamp(-50.0, 50.0))
         with torch.no_grad():
             self.cross_abs_max = cross.abs().max().item()
         return self.head(torch.cat((out_rgb, out_of, cross), dim=1))
