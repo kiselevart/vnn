@@ -19,6 +19,7 @@ from network.video_higher_order import (
     lvn_fusion_gauss, lvn_fusion_signed,
     lvn_laguerre_rgb, lvn_laguerre_fusion,
     lvn_monomial_rgb, lvn_monomial_fusion,
+    lvn_laguerre_full_rgb, lvn_laguerre_full_fusion,
 )
 
 from network.video import vnn_fusion_highQv2
@@ -165,6 +166,20 @@ def get_model(args, device):
 
         elif args.model == "lvn_monomial_fusion":
             net = lvn_monomial_fusion(num_classes=args.num_classes, clip_len=clip_len)
+
+        elif args.model == "lvn_laguerre_full_rgb":
+            net = lvn_laguerre_full_rgb(
+                num_classes=args.num_classes, clip_len=clip_len,
+                n_lag_t=getattr(args, "n_lag_t", None),
+                n_lag_s=getattr(args, "n_lag_s", None),
+            )
+
+        elif args.model == "lvn_laguerre_full_fusion":
+            net = lvn_laguerre_full_fusion(
+                num_classes=args.num_classes, clip_len=clip_len,
+                n_lag_t=getattr(args, "n_lag_t", None),
+                n_lag_s=getattr(args, "n_lag_s", None),
+            )
 
         elif args.model == "r2plus1d":
             net = R2Plus1DNet(num_classes=args.num_classes)

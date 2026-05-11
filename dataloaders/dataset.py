@@ -88,8 +88,13 @@ class VideoDataset(Dataset):
             print(f'  [INFO] Skipped {skipped} videos with fewer than {self.clip_len} frames.')
         print('Number of {} videos: {:d}'.format(split, len(self.fnames)))
 
-        # Prepare a mapping between the label names (strings) and indices (ints)
-        self.label2index = {label: index for index, label in enumerate(sorted(set(labels)))}
+        # Prepare a mapping between the label names (strings) and indices (ints).
+        # Use ALL class directories (same list as the outer loop), not just those
+        # that happen to have valid videos in this split. If a class loses all its
+        # videos to the short-frame filter, sorted(set(labels)) would omit it and
+        # shift every subsequent class index — corrupting val/test label alignment
+        # with the train-derived model outputs.
+        self.label2index = {label: index for index, label in enumerate(sorted(os.listdir(folder)))}
         # Convert the list of label names into an array of label indices
         self.label_array = np.array([self.label2index[label] for label in labels], dtype=int)
 

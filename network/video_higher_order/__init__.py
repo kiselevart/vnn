@@ -20,6 +20,8 @@ from .laguerre_conv import (
     LaguerreVolterraBlock3D,
     lvn_laguerre_rgb, lvn_laguerre_fusion,
     lvn_monomial_rgb, lvn_monomial_fusion,
+    LaguerreConv3d_Full,
+    lvn_laguerre_full_rgb, lvn_laguerre_full_fusion,
 )
 
 __all__ = [
@@ -35,8 +37,11 @@ __all__ = [
     "LVNRgb", "LVNFusion",
     "lvn_rgb_gauss", "lvn_rgb_signed",
     "lvn_fusion_gauss", "lvn_fusion_signed",
-    # Proper Laguerre-basis models
+    # Proper Laguerre-basis models (temporal only)
     "LaguerreConv3d", "LaguerreVolterraBlock3D",
     "lvn_laguerre_rgb", "lvn_laguerre_fusion",
     "lvn_monomial_rgb", "lvn_monomial_fusion",
+    # Full 3D Laguerre basis (Tucker decomposition over T, H, W)
+    "LaguerreConv3d_Full",
+    "lvn_laguerre_full_rgb", "lvn_laguerre_full_fusion",
 ]

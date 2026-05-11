@@ -35,6 +35,10 @@ def parse_args():
                         help="Number of frames per clip. Must be a multiple of 16.")
     parser.add_argument("--n_lag", type=int, default=None,
                         help="Laguerre basis size for LaguerreConv3d. None = full (= kernel T dim).")
+    parser.add_argument("--n_lag_t", type=int, default=None,
+                        help="Temporal Laguerre orders for LaguerreConv3d_Full. None = no compression.")
+    parser.add_argument("--n_lag_s", type=int, default=None,
+                        help="Spatial Laguerre orders (H and W) for LaguerreConv3d_Full. None = no compression.")
     parser.add_argument("--disable_cubic", action="store_true")
     parser.add_argument("--cubic_mode", type=str, default="symmetric",
                         choices=["symmetric", "general"])
