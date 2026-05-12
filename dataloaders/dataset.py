@@ -128,27 +128,36 @@ class VideoDataset(Dataset):
             print(f'    Output : {self.output_dir}')
             print(f'    This runs once and may take 10–60+ minutes depending on dataset size.')
             self.preprocess()
+            self._invalidate_filelist_cache(split)
 
-        # Obtain all the filenames of files inside all the class folders
-        # Going through each class folder one at a time
-        self.fnames, labels = [], []
-        skipped = 0
-        for label in sorted(os.listdir(folder)):
-            for fname in os.listdir(os.path.join(folder, label)):
-                fpath = os.path.join(folder, label, fname)
-                if not os.path.isdir(fpath):
-                    continue
-                n_frames = sum(1 for f in os.listdir(fpath) if f.endswith('.jpg'))
-                if n_frames < 2:
-                    skipped += 1
-                    continue
-                self.fnames.append(fpath)
-                labels.append(label)
+        cache_path = os.path.join(self.output_dir, f'filelist_{split}.pkl')
+        if os.path.exists(cache_path):
+            import pickle
+            with open(cache_path, 'rb') as f:
+                self.fnames, labels = pickle.load(f)
+            print(f'Number of {split} videos: {len(self.fnames):d} (from cache)')
+        else:
+            import pickle
+            self.fnames, labels = [], []
+            skipped = 0
+            for label in sorted(os.listdir(folder)):
+                for fname in os.listdir(os.path.join(folder, label)):
+                    fpath = os.path.join(folder, label, fname)
+                    if not os.path.isdir(fpath):
+                        continue
+                    n_frames = sum(1 for f in os.listdir(fpath) if f.endswith('.jpg'))
+                    if n_frames < 2:
+                        skipped += 1
+                        continue
+                    self.fnames.append(fpath)
+                    labels.append(label)
+            if skipped:
+                print(f'  [INFO] Skipped {skipped} videos with fewer than 2 frames.')
+            print(f'Number of {split} videos: {len(self.fnames):d}')
+            with open(cache_path, 'wb') as f:
+                pickle.dump((self.fnames, labels), f)
 
         assert len(labels) == len(self.fnames)
-        if skipped:
-            print(f'  [INFO] Skipped {skipped} videos with fewer than 2 frames.')
-        print('Number of {} videos: {:d}'.format(split, len(self.fnames)))
 
         # Prepare a mapping between the label names (strings) and indices (ints).
         # Use ALL class directories (same list as the outer loop), not just those
@@ -192,6 +201,11 @@ class VideoDataset(Dataset):
         buffer = self.normalize(buffer)
         buffer = self.to_tensor(buffer)
         return torch.from_numpy(buffer), torch.from_numpy(labels)
+
+    def _invalidate_filelist_cache(self, split):
+        cache_path = os.path.join(self.output_dir, f'filelist_{split}.pkl')
+        if os.path.exists(cache_path):
+            os.remove(cache_path)
 
     def check_integrity(self):
         if not os.path.exists(self.root_dir):
