@@ -19,7 +19,7 @@ def parse_args():
     
     # Core Training Args
     parser.add_argument("--dataset", type=str, required=True,
-                        help="Dataset name: cifar10 | ucf101 | hmdb51 | ucf10 | ucf11 | <UCR/UEA dataset name>")
+                        help="Dataset name: cifar10 | ucf101 | hmdb51 | ucf10 | ucf11 | ssv2 | <UCR/UEA dataset name>")
     parser.add_argument("--task", type=str, default=None, choices=["cifar", "video", "timeseries", "mnist"],
                         help="Task type. Auto-detected from --dataset if not set.")
     parser.add_argument("--model", type=str, required=True)
@@ -74,8 +74,8 @@ def parse_args():
     args = parser.parse_args()
     
     # Auto-determine Task and Classes
-    _video_ds   = {"ucf10", "ucf11", "ucf101", "hmdb51"}
-    _ds_classes = {"cifar10": 10, "ucf11": 11, "ucf101": 101, "hmdb51": 51, "ucf10": 10, "mnist": 10}
+    _video_ds   = {"ucf10", "ucf11", "ucf101", "hmdb51", "ssv2"}
+    _ds_classes = {"cifar10": 10, "ucf11": 11, "ucf101": 101, "hmdb51": 51, "ucf10": 10, "ssv2": 174, "mnist": 10}
     if args.task is None:
         if args.dataset == "cifar10":
             args.task = "cifar"
