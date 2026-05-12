@@ -59,6 +59,7 @@ def parse_args():
     parser.add_argument("--alpha", type=float, default=1.0)
     parser.add_argument("--jitter_sigma", type=float, default=0.03)
     parser.add_argument("--wandb_group", type=str, default=None)
+    parser.add_argument("--no_wandb", action="store_true")
     parser.add_argument("--split", type=int, default=1, choices=[1, 2, 3])
     parser.add_argument("--num_workers", type=int, default=16)
     parser.add_argument("--device", type=str, default="auto", choices=["auto", "cuda", "mps", "cpu"])
@@ -159,7 +160,7 @@ class Trainer:
         self.run_name = args.run_name
         self.out_dir = os.path.join("runs", f"{self.run_name}_{timestamp}")
 
-        if self.is_main:
+        if self.is_main and not getattr(args, "no_wandb", False):
             os.makedirs(os.path.join(self.out_dir, "checkpoints"), exist_ok=True)
             import wandb
             self.wandb = wandb
@@ -171,6 +172,8 @@ class Trainer:
             )
             atexit.register(lambda: self.wandb.finish() if self.wandb else None)
         else:
+            if self.is_main:
+                os.makedirs(os.path.join(self.out_dir, "checkpoints"), exist_ok=True)
             self.wandb = _WandbStub()
 
     def _setup_data(self, args):
