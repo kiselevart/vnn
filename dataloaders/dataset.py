@@ -178,7 +178,9 @@ class VideoDataset(Dataset):
         test_list  = os.path.join(self.root_dir, 'ucfTrainTestlist', f'testlist0{self.ucf_split}.txt')
         hmdb_splits_dir = os.path.join(self.root_dir, 'testTrainMulti_7030_splits')
 
-        if os.path.exists(train_list) and os.path.exists(test_list):
+        if self._detect_ssv2():
+            self._preprocess_ssv2()
+        elif os.path.exists(train_list) and os.path.exists(test_list):
             # UCF101 official splits — group-aware, no performer leakage
             self._preprocess_official_splits(train_list, test_list)
         elif os.path.isdir(hmdb_splits_dir):
@@ -197,7 +199,7 @@ class VideoDataset(Dataset):
         print('Preprocessing finished.')
 
     def _is_video_file(self, path):
-        return os.path.isfile(path) and path.lower().endswith(('.avi', '.mp4', '.mkv', '.mpg', '.mpeg', '.mov'))
+        return os.path.isfile(path) and path.lower().endswith(('.avi', '.mp4', '.mkv', '.mpg', '.mpeg', '.mov', '.webm'))
 
     def _collect_video_entries(self, class_dir):
         """Collect supported videos in a class directory.
@@ -508,19 +510,57 @@ class VideoDataset(Dataset):
                 else:
                     self.process_video(vid, cls, save_dir)
 
-    def process_video(self, video, action_name, save_dir):
-        """Extract and resize frames from a video file.
-        
-        Args:
-            video: Video filename (e.g. 'v_Apply_g01_c01.avi')
-            action_name: Relative path from root_dir to the folder containing the video
-                         (e.g. 'ApplyEyeMakeup' or 'train/ApplyEyeMakeup')
-            save_dir: Directory to save extracted frames
+    def _detect_ssv2(self):
+        return os.path.exists(os.path.join(self.root_dir, 'labels', 'labels.json'))
+
+    def _preprocess_ssv2(self):
+        import json, csv
+
+        with open(os.path.join(self.root_dir, 'labels', 'labels.json')) as f:
+            json.load(f)  # validate; actual class dirs come from template strings
+
+        def process_split(entries, split_name):
+            for vid_id, template in tqdm(entries, desc=f'Processing {split_name}'):
+                save_dir = os.path.join(self.output_dir, split_name, template)
+                os.makedirs(save_dir, exist_ok=True)
+                src_path = None
+                for ext in ('.webm', '.mp4'):
+                    p = os.path.join(self.root_dir, vid_id + ext)
+                    if os.path.exists(p):
+                        src_path = p
+                        break
+                if src_path is None:
+                    continue
+                self._extract_video_to_dir(src_path, os.path.join(save_dir, vid_id))
+
+        with open(os.path.join(self.root_dir, 'labels', 'train.json')) as f:
+            train_ann = json.load(f)
+        train_entries = [(e['id'], e['template']) for e in train_ann]
+        print(f'  train: {len(train_entries)} videos')
+        process_split(train_entries, 'train')
+
+        with open(os.path.join(self.root_dir, 'labels', 'validation.json')) as f:
+            val_ann = json.load(f)
+        val_entries = [(e['id'], e['template']) for e in val_ann]
+        print(f'  val: {len(val_entries)} videos')
+        process_split(val_entries, 'val')
+
+        test_entries = []
+        with open(os.path.join(self.root_dir, 'labels', 'test-answers.csv')) as f:
+            for row in csv.reader(f, delimiter=';'):
+                if len(row) >= 2:
+                    test_entries.append((row[0], row[1]))
+        print(f'  test: {len(test_entries)} videos')
+        process_split(test_entries, 'test')
+
+    def _extract_video_to_dir(self, src_path, target_dir):
+        """Extract and resize frames from src_path into target_dir.
+
+        Skips (no-ops) if target_dir already contains frames — makes all
+        callers idempotent without extra bookkeeping.
         """
-        # Initialize a VideoCapture object to read video data into a numpy array
-        src_path = os.path.join(self.root_dir, action_name, video)
-        video_filename = os.path.splitext(os.path.basename(video))[0]
-        target_dir = os.path.join(save_dir, video_filename)
+        if os.path.isdir(target_dir) and any(f.endswith('.jpg') for f in os.listdir(target_dir)):
+            return
 
         capture = cv2.VideoCapture(src_path)
         if not capture.isOpened():
@@ -529,16 +569,14 @@ class VideoDataset(Dataset):
             return
 
         frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
-        frame_width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+        frame_width  = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
         frame_height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-        # Skip videos that are too short even at 1:1 extraction
         if frame_count < self.clip_len:
             print(f"[SKIP] {os.path.basename(src_path)}: only {frame_count} frames (need {self.clip_len})")
             capture.release()
             return
 
-        # Lower extraction frequency until we yield at least clip_len frames
         EXTRACT_FREQUENCY = 4
         while EXTRACT_FREQUENCY > 1 and frame_count // EXTRACT_FREQUENCY < self.clip_len:
             EXTRACT_FREQUENCY -= 1
@@ -549,19 +587,17 @@ class VideoDataset(Dataset):
         i = 0
         retaining = True
 
-        while (count < frame_count and retaining):
+        while count < frame_count and retaining:
             retaining, frame = capture.read()
             if frame is None:
                 continue
-
             if count % EXTRACT_FREQUENCY == 0:
-                if (frame_height != self.resize_height) or (frame_width != self.resize_width):
+                if frame_height != self.resize_height or frame_width != self.resize_width:
                     frame = cv2.resize(frame, (self.resize_width, self.resize_height))
-                cv2.imwrite(filename=os.path.join(target_dir, '0000{}.jpg'.format(str(i))), img=frame)
+                cv2.imwrite(os.path.join(target_dir, '0000{}.jpg'.format(str(i))), frame)
                 i += 1
             count += 1
 
-        # Release the VideoCapture once it is no longer needed
         capture.release()
 
         if i == 0 and os.path.isdir(target_dir):
@@ -571,6 +607,12 @@ class VideoDataset(Dataset):
                 pass
         elif i > 0:
             self._compute_and_save_flow(target_dir)
+
+    def process_video(self, video, action_name, save_dir):
+        src_path = os.path.join(self.root_dir, action_name, video)
+        video_filename = os.path.splitext(os.path.basename(video))[0]
+        target_dir = os.path.join(save_dir, video_filename)
+        self._extract_video_to_dir(src_path, target_dir)
 
     def _compute_and_save_flow(self, video_dir):
         """Compute optical flow from raw frames in video_dir and save to flow.npy.
