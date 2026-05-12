@@ -12,8 +12,8 @@ from .volterra_blocks import (
 )
 from .lvn_blocks import (
     LVNRgb, LVNFusion,
-    lvn_rgb_gauss, lvn_rgb_signed,
-    lvn_fusion_gauss, lvn_fusion_signed,
+    lvn_rgb_signed,
+    lvn_fusion_signed,
 )
 from .laguerre_conv import (
     LaguerreConv3d,
@@ -33,10 +33,9 @@ __all__ = [
     "VolterraBlock3D", "MultiKernelBlock3D", "ClassifierHead",
     "volterra_quadratic", "volterra_cubic_symmetric",
     "volterra_cubic_general", "init_vnn_weights",
-    # Signed/Gaussian interaction ablations
+    # LVN models (Volterra interactions)
     "LVNRgb", "LVNFusion",
-    "lvn_rgb_gauss", "lvn_rgb_signed",
-    "lvn_fusion_gauss", "lvn_fusion_signed",
+    "lvn_rgb_signed", "lvn_fusion_signed",
     # Proper Laguerre-basis models (temporal only)
     "LaguerreConv3d", "LaguerreVolterraBlock3D",
     "lvn_laguerre_rgb", "lvn_laguerre_fusion",

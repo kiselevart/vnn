@@ -15,8 +15,7 @@ from network.video.established_models import R2Plus1DNet, R3DNet
 # Higher-order video models
 from network.video_higher_order import (
     VNNRgbHO, VNNFusionHO,
-    lvn_rgb_gauss, lvn_rgb_signed,
-    lvn_fusion_gauss, lvn_fusion_signed,
+    lvn_rgb_signed, lvn_fusion_signed,
     lvn_laguerre_rgb, lvn_laguerre_fusion,
     lvn_monomial_rgb, lvn_monomial_fusion,
     lvn_laguerre_full_rgb, lvn_laguerre_full_fusion,
@@ -141,14 +140,8 @@ def get_model(args, device):
                               use_cubic=not args.disable_cubic, clip_len=clip_len)
 
         # --- Laguerre VNN ablations ---
-        elif args.model == "lvn_rgb_gauss":
-            net = lvn_rgb_gauss(num_classes=args.num_classes, clip_len=clip_len)
-
         elif args.model == "lvn_rgb_signed":
             net = lvn_rgb_signed(num_classes=args.num_classes, clip_len=clip_len)
-
-        elif args.model == "lvn_fusion_gauss":
-            net = lvn_fusion_gauss(num_classes=args.num_classes, clip_len=clip_len)
 
         elif args.model == "lvn_fusion_signed":
             net = lvn_fusion_signed(num_classes=args.num_classes, clip_len=clip_len)

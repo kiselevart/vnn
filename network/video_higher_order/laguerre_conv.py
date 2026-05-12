@@ -42,7 +42,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .volterra_blocks import ClassifierHead, volterra_quadratic
-from .lvn_blocks import soft_clamp
 
 
 # ---------------------------------------------------------------------------
@@ -191,12 +190,11 @@ class LaguerreVolterraBlock3D(nn.Module):
     def __init__(self, in_ch: int, out_ch: int, Q: int = 4,
                  kernel_size=3, N_lag: int | None = None, alpha: float = 1.0,
                  stride: int = 1, use_shortcut: bool = False,
-                 use_soft_clamp: bool = True, use_laguerre_basis: bool = True):
+                 use_laguerre_basis: bool = True):
         super().__init__()
         self.out_ch  = out_ch
         self.Q       = Q
         self.use_shortcut   = use_shortcut
-        self.use_soft_clamp = use_soft_clamp
 
         if isinstance(kernel_size, int):
             kernel_size = (kernel_size,) * 3
@@ -232,7 +230,7 @@ class LaguerreVolterraBlock3D(nn.Module):
                 m.bias.data.zero_()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x   = soft_clamp(x) if self.use_soft_clamp else x
+        x   = x.clamp(-50.0, 50.0)
         out = self.bn_lin(self.conv_lin(x))
         q   = self.bn_quad(volterra_quadratic(self.conv_quad(x), self.Q, self.out_ch))
         out = out + self.quad_gate.view(1, -1, 1, 1, 1) * q
@@ -250,13 +248,11 @@ class LaguerreMultiKernelBlock3D(nn.Module):
 
     def __init__(self, in_ch: int, ch_per_kernel: int, kernels,
                  Q: int = 4, N_lag: int | None = None, alpha: float = 1.0,
-                 stride: int = 1, use_soft_clamp: bool = True,
-                 use_laguerre_basis: bool = True):
+                 stride: int = 1, use_laguerre_basis: bool = True):
         super().__init__()
         self.Q = Q
         self.ch_per_kernel = ch_per_kernel
         self.out_ch = ch_per_kernel * len(kernels)
-        self.use_soft_clamp = use_soft_clamp
 
         self.lin_convs  = nn.ModuleList()
         self.quad_convs = nn.ModuleList()
@@ -286,7 +282,7 @@ class LaguerreMultiKernelBlock3D(nn.Module):
                 m.bias.data.zero_()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x    = soft_clamp(x) if self.use_soft_clamp else x
+        x    = x.clamp(-50.0, 50.0)
         lin  = self.bn_lin(torch.cat([c(x) for c in self.lin_convs], dim=1))
         quad = self.bn_quad(torch.cat(
             [volterra_quadratic(c(x), self.Q, self.ch_per_kernel) for c in self.quad_convs],
@@ -531,20 +527,17 @@ class LaguerreFullVolterraBlock3D(nn.Module):
         center_spatial:  Symmetric spatial basis. Default True.
         stride:          MaxPool3d(2) if > 1.
         use_shortcut:    Residual 1×1 shortcut.
-        use_soft_clamp:  Smooth input clamp.
     """
 
     def __init__(self, in_ch: int, out_ch: int, Q: int = 4,
                  kernel_size=3, N_lag_T: int | None = None, N_lag_S: int | None = None,
                  alpha_T: float = 1.0, alpha_S: float = 1.0,
                  center_spatial: bool = True,
-                 stride: int = 1, use_shortcut: bool = False,
-                 use_soft_clamp: bool = True):
+                 stride: int = 1, use_shortcut: bool = False):
         super().__init__()
         self.out_ch = out_ch
         self.Q = Q
         self.use_shortcut = use_shortcut
-        self.use_soft_clamp = use_soft_clamp
 
         if isinstance(kernel_size, int):
             kernel_size = (kernel_size,) * 3
@@ -577,7 +570,7 @@ class LaguerreFullVolterraBlock3D(nn.Module):
                 m.bias.data.zero_()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x   = soft_clamp(x) if self.use_soft_clamp else x
+        x   = x.clamp(-50.0, 50.0)
         out = self.bn_lin(self.conv_lin(x))
         q   = self.bn_quad(volterra_quadratic(self.conv_quad(x), self.Q, self.out_ch))
         out = out + self.quad_gate.view(1, -1, 1, 1, 1) * q
@@ -592,13 +585,11 @@ class LaguerreFullMultiKernelBlock3D(nn.Module):
     def __init__(self, in_ch: int, ch_per_kernel: int, kernels,
                  Q: int = 4, N_lag_T: int | None = None, N_lag_S: int | None = None,
                  alpha_T: float = 1.0, alpha_S: float = 1.0,
-                 center_spatial: bool = True, stride: int = 1,
-                 use_soft_clamp: bool = True):
+                 center_spatial: bool = True, stride: int = 1):
         super().__init__()
         self.Q = Q
         self.ch_per_kernel = ch_per_kernel
         self.out_ch = ch_per_kernel * len(kernels)
-        self.use_soft_clamp = use_soft_clamp
 
         self.lin_convs  = nn.ModuleList()
         self.quad_convs = nn.ModuleList()
@@ -621,7 +612,7 @@ class LaguerreFullMultiKernelBlock3D(nn.Module):
                 m.bias.data.zero_()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x    = soft_clamp(x) if self.use_soft_clamp else x
+        x    = x.clamp(-50.0, 50.0)
         lin  = self.bn_lin(torch.cat([c(x) for c in self.lin_convs], dim=1))
         quad = self.bn_quad(torch.cat(
             [volterra_quadratic(c(x), self.Q, self.ch_per_kernel) for c in self.quad_convs],
