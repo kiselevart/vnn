@@ -12,6 +12,68 @@ from mypath import Path
 from utils.video_utils import calculate_video_flow
 
 
+def _video_preprocess_job(args):
+    """Module-level worker for parallel video preprocessing.
+
+    Must be at module level (not a method) so multiprocessing can pickle it.
+    args: (src_path, target_dir, clip_len, resize_height, resize_width)
+    """
+    src_path, target_dir, clip_len, resize_height, resize_width = args
+
+    if os.path.isdir(target_dir) and any(f.endswith('.jpg') for f in os.listdir(target_dir)):
+        return
+
+    capture = cv2.VideoCapture(src_path)
+    if not capture.isOpened():
+        capture.release()
+        return
+
+    frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+    frame_width  = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    if frame_count < clip_len:
+        capture.release()
+        return
+
+    freq = 4
+    while freq > 1 and frame_count // freq < clip_len:
+        freq -= 1
+
+    os.makedirs(target_dir, exist_ok=True)
+    count = i = 0
+    retaining = True
+    while count < frame_count and retaining:
+        retaining, frame = capture.read()
+        if frame is None:
+            continue
+        if count % freq == 0:
+            if frame_height != resize_height or frame_width != resize_width:
+                frame = cv2.resize(frame, (resize_width, resize_height))
+            cv2.imwrite(os.path.join(target_dir, '0000{}.jpg'.format(i)), frame)
+            i += 1
+        count += 1
+    capture.release()
+
+    if i == 0:
+        try:
+            os.rmdir(target_dir)
+        except OSError:
+            pass
+        return
+
+    frame_paths = sorted(
+        os.path.join(target_dir, f) for f in os.listdir(target_dir) if f.endswith('.jpg')
+    )
+    imgs = [cv2.imread(p) for p in frame_paths]
+    imgs = [img for img in imgs if img is not None]
+    if len(imgs) < 2:
+        return
+    video_tensor = torch.from_numpy(np.stack(imgs, 0)).permute(3, 0, 1, 2).float()
+    flow = calculate_video_flow(video_tensor)
+    np.save(os.path.join(target_dir, 'flow.npy'), flow.numpy())
+
+
 class VideoDataset(Dataset):
     r"""A Dataset for a folder of videos. Expects the directory structure to be
     directory->[train/val/test]->[class labels]->[videos]. Initializes with a list
@@ -515,23 +577,29 @@ class VideoDataset(Dataset):
 
     def _preprocess_ssv2(self):
         import json, csv
+        from multiprocessing import Pool
 
         with open(os.path.join(self.root_dir, 'labels', 'labels.json')) as f:
             json.load(f)  # validate; actual class dirs come from template strings
 
         def process_split(entries, split_name):
-            for vid_id, template in tqdm(entries, desc=f'Processing {split_name}'):
+            jobs = []
+            for vid_id, template in entries:
                 save_dir = os.path.join(self.output_dir, split_name, template)
                 os.makedirs(save_dir, exist_ok=True)
-                src_path = None
                 for ext in ('.webm', '.mp4'):
                     p = os.path.join(self.root_dir, vid_id + ext)
                     if os.path.exists(p):
-                        src_path = p
+                        jobs.append((p, os.path.join(save_dir, vid_id),
+                                     self.clip_len, self.resize_height, self.resize_width))
                         break
-                if src_path is None:
-                    continue
-                self._extract_video_to_dir(src_path, os.path.join(save_dir, vid_id))
+
+            n_workers = min(os.cpu_count() or 4, 32)
+            print(f'  {split_name}: {len(jobs)} videos, {n_workers} workers')
+            with Pool(n_workers) as pool:
+                for _ in tqdm(pool.imap_unordered(_video_preprocess_job, jobs, chunksize=8),
+                              total=len(jobs), desc=f'Processing {split_name}'):
+                    pass
 
         with open(os.path.join(self.root_dir, 'labels', 'train.json')) as f:
             train_ann = json.load(f)
@@ -554,59 +622,7 @@ class VideoDataset(Dataset):
         process_split(test_entries, 'test')
 
     def _extract_video_to_dir(self, src_path, target_dir):
-        """Extract and resize frames from src_path into target_dir.
-
-        Skips (no-ops) if target_dir already contains frames — makes all
-        callers idempotent without extra bookkeeping.
-        """
-        if os.path.isdir(target_dir) and any(f.endswith('.jpg') for f in os.listdir(target_dir)):
-            return
-
-        capture = cv2.VideoCapture(src_path)
-        if not capture.isOpened():
-            print(f"[WARN] Skipping unreadable video: {src_path}")
-            capture.release()
-            return
-
-        frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
-        frame_width  = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
-        frame_height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-        if frame_count < self.clip_len:
-            print(f"[SKIP] {os.path.basename(src_path)}: only {frame_count} frames (need {self.clip_len})")
-            capture.release()
-            return
-
-        EXTRACT_FREQUENCY = 4
-        while EXTRACT_FREQUENCY > 1 and frame_count // EXTRACT_FREQUENCY < self.clip_len:
-            EXTRACT_FREQUENCY -= 1
-
-        os.makedirs(target_dir, exist_ok=True)
-
-        count = 0
-        i = 0
-        retaining = True
-
-        while count < frame_count and retaining:
-            retaining, frame = capture.read()
-            if frame is None:
-                continue
-            if count % EXTRACT_FREQUENCY == 0:
-                if frame_height != self.resize_height or frame_width != self.resize_width:
-                    frame = cv2.resize(frame, (self.resize_width, self.resize_height))
-                cv2.imwrite(os.path.join(target_dir, '0000{}.jpg'.format(str(i))), frame)
-                i += 1
-            count += 1
-
-        capture.release()
-
-        if i == 0 and os.path.isdir(target_dir):
-            try:
-                os.rmdir(target_dir)
-            except OSError:
-                pass
-        elif i > 0:
-            self._compute_and_save_flow(target_dir)
+        _video_preprocess_job((src_path, target_dir, self.clip_len, self.resize_height, self.resize_width))
 
     def process_video(self, video, action_name, save_dir):
         src_path = os.path.join(self.root_dir, action_name, video)
