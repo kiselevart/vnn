@@ -210,7 +210,7 @@ class LaguerreVolterraBlock3D(nn.Module):
         self.bn_lin    = nn.BatchNorm3d(out_ch)
         self.conv_quad = _make_conv(2 * Q * out_ch)
         self.bn_quad   = nn.BatchNorm3d(out_ch)
-        self.quad_gate = nn.Parameter(torch.ones(out_ch) * 1e-4)
+        self.quad_gate = nn.Parameter(torch.ones(out_ch) * 1e-2)
 
         if use_shortcut:
             self.shortcut = nn.Sequential(
@@ -269,7 +269,7 @@ class LaguerreMultiKernelBlock3D(nn.Module):
 
         self.bn_lin    = nn.BatchNorm3d(self.out_ch)
         self.bn_quad   = nn.BatchNorm3d(self.out_ch)
-        self.quad_gate = nn.Parameter(torch.ones(self.out_ch) * 1e-4)
+        self.quad_gate = nn.Parameter(torch.ones(self.out_ch) * 1e-2)
         self.pool      = nn.MaxPool3d(2, 2) if stride > 1 else nn.Identity()
 
         if not use_laguerre_basis:
@@ -555,7 +555,7 @@ class LaguerreFullVolterraBlock3D(nn.Module):
         self.bn_lin    = nn.BatchNorm3d(out_ch)
         self.conv_quad = _make_conv(2 * Q * out_ch)
         self.bn_quad   = nn.BatchNorm3d(out_ch)
-        self.quad_gate = nn.Parameter(torch.ones(out_ch) * 1e-4)
+        self.quad_gate = nn.Parameter(torch.ones(out_ch) * 1e-2)
 
         if use_shortcut:
             self.shortcut = nn.Sequential(
@@ -603,7 +603,7 @@ class LaguerreFullMultiKernelBlock3D(nn.Module):
 
         self.bn_lin    = nn.BatchNorm3d(self.out_ch)
         self.bn_quad   = nn.BatchNorm3d(self.out_ch)
-        self.quad_gate = nn.Parameter(torch.ones(self.out_ch) * 1e-4)
+        self.quad_gate = nn.Parameter(torch.ones(self.out_ch) * 1e-2)
         self.pool      = nn.MaxPool3d(2, 2) if stride > 1 else nn.Identity()
 
         for m in self.modules():

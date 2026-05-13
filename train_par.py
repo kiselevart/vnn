@@ -59,6 +59,8 @@ def parse_args():
     parser.add_argument("--alpha", type=float, default=1.0)
     parser.add_argument("--jitter_sigma", type=float, default=0.03)
     parser.add_argument("--wandb_group", type=str, default=None)
+    parser.add_argument("--laguerre_lr_mult", type=float, default=3.0)
+    parser.add_argument("--warmup_epochs", type=int, default=5)
     parser.add_argument("--no_wandb", action="store_true")
     parser.add_argument("--split", type=int, default=1, choices=[1, 2, 3])
     parser.add_argument("--num_workers", type=int, default=16)
@@ -208,27 +210,43 @@ class Trainer:
             get_1x  = getattr(self.raw_model, "get_1x_lr_params", None)
             get_10x = getattr(self.raw_model, "get_10x_lr_params", None)
 
-            def split_wd(param_iter):
-                decay, no_decay = [], []
-                for p in param_iter:
-                    (no_decay if p.ndim <= 1 else decay).append(p)
-                return decay, no_decay
+            # Laguerre coeff tensors are ndim=5 and need a higher LR to compensate
+            # for gradient attenuation through the Tucker basis reconstruction.
+            laguerre_coeff_lr = args.lr * args.laguerre_lr_mult
+            is_laguerre_coeff = lambda name: name.endswith(".coeff")  # noqa: E731
+
+            def split_wd_by_name(named_params, lr):
+                decay, no_decay, lag_decay, lag_no_decay = [], [], [], []
+                for name, p in named_params:
+                    if is_laguerre_coeff(name):
+                        (lag_no_decay if p.ndim <= 1 else lag_decay).append(p)
+                    else:
+                        (no_decay if p.ndim <= 1 else decay).append(p)
+                groups = [
+                    {"params": decay,      "lr": lr,               "weight_decay": args.weight_decay},
+                    {"params": no_decay,   "lr": lr,               "weight_decay": 0.0},
+                ]
+                if lag_decay or lag_no_decay:
+                    groups += [
+                        {"params": lag_decay,    "lr": laguerre_coeff_lr, "weight_decay": args.weight_decay},
+                        {"params": lag_no_decay, "lr": laguerre_coeff_lr, "weight_decay": 0.0},
+                    ]
+                return groups
 
             if callable(get_1x):
-                d1, nd1 = split_wd(get_1x())
-                params = [
-                    {"params": d1,  "lr": args.lr, "weight_decay": args.weight_decay},
-                    {"params": nd1, "lr": args.lr, "weight_decay": 0.0},
-                ]
+                # get_1x_lr_params yields params not names; fall back to named scan
+                # for the Laguerre split, use all named params and filter by get_1x ids
+                get_1x_ids = {id(p) for p in get_1x()}  # type: ignore[call-overload]
+                named_1x = [(n, p) for n, p in self.raw_model.named_parameters()
+                            if id(p) in get_1x_ids]
+                params = split_wd_by_name(named_1x, args.lr)
             else:
-                d, nd = split_wd(self.raw_model.parameters())
-                params = [
-                    {"params": d,  "lr": args.lr, "weight_decay": args.weight_decay},
-                    {"params": nd, "lr": args.lr, "weight_decay": 0.0},
-                ]
+                params = split_wd_by_name(self.raw_model.named_parameters(), args.lr)
 
             if callable(get_10x):
-                dfc, ndfc = split_wd(get_10x())
+                dfc, ndfc = [], []
+                for p in get_10x():  # type: ignore[call-overload]
+                    (ndfc if p.ndim <= 1 else dfc).append(p)
                 fc_lr = args.lr * args.fc_lr_mult
                 params += [
                     {"params": dfc,  "lr": fc_lr, "weight_decay": args.weight_decay},
@@ -236,7 +254,16 @@ class Trainer:
                 ]
 
             self.optimizer = optim.AdamW(params, lr=args.lr, weight_decay=args.weight_decay)
-            self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=args.epochs, eta_min=1e-6)
+            warmup_epochs = args.warmup_epochs
+            cosine = optim.lr_scheduler.CosineAnnealingLR(
+                self.optimizer, T_max=max(1, args.epochs - warmup_epochs), eta_min=1e-6)
+            if warmup_epochs > 0:
+                warmup = optim.lr_scheduler.LinearLR(
+                    self.optimizer, start_factor=0.1, end_factor=1.0, total_iters=warmup_epochs)
+                self.scheduler = optim.lr_scheduler.SequentialLR(
+                    self.optimizer, schedulers=[warmup, cosine], milestones=[warmup_epochs])
+            else:
+                self.scheduler = cosine
         else:
             self.optimizer = optim.SGD(self.raw_model.parameters(), lr=args.lr,
                                        momentum=args.momentum, weight_decay=args.weight_decay, nesterov=True)
