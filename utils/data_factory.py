@@ -32,52 +32,65 @@ class FlowDatasetWrapper(Dataset):
 
         # Load full-resolution frames [T, H, W, C] — before any crop or normalize
         buffer = ds.load_frames(ds.fnames[index])
+        label = torch.from_numpy(np.array(ds.label_array[index]))
 
-        # Compute shared crop indices applied to both RGB and flow
         if ds.augment:
+            # Training: single random clip, shared crop indices for RGB and flow
             max_t = buffer.shape[0] - ds.clip_len
             t_idx = np.random.randint(max_t + 1) if max_t > 0 else 0
             h_idx = np.random.randint(max(1, buffer.shape[1] - ds.crop_size))
             w_idx = np.random.randint(max(1, buffer.shape[2] - ds.crop_size))
-        else:
-            t_idx = max(0, (buffer.shape[0] - ds.clip_len) // 2)
-            h_idx = max(0, (buffer.shape[1] - ds.crop_size) // 2)
-            w_idx = max(0, (buffer.shape[2] - ds.crop_size) // 2)
+            do_flip = np.random.random() < 0.5
 
-        do_flip = ds.augment and np.random.random() < 0.5
-
-        # --- RGB stream ---
-        rgb = buffer[t_idx:t_idx + ds.clip_len,
-                     h_idx:h_idx + ds.crop_size,
-                     w_idx:w_idx + ds.crop_size]
-        rgb = ds.ensure_clip_len(rgb, ds.clip_len)
-        if do_flip:
-            rgb = ds.randomflip(rgb)
-        if ds.augment:
+            rgb = buffer[t_idx:t_idx + ds.clip_len,
+                         h_idx:h_idx + ds.crop_size,
+                         w_idx:w_idx + ds.crop_size]
+            rgb = ds.ensure_clip_len(rgb, ds.clip_len)
+            if do_flip:
+                rgb = ds.randomflip(rgb)
             rgb = ds.color_jitter(rgb)
-        rgb = ds.normalize(rgb)
-        rgb = torch.from_numpy(ds.to_tensor(rgb))
-        if not torch.isfinite(rgb).all():
-            rgb = torch.nan_to_num(rgb, nan=0.0, posinf=255.0, neginf=-255.0)
+            rgb = ds.normalize(rgb)
+            rgb = torch.from_numpy(ds.to_tensor(rgb))
+            if not torch.isfinite(rgb).all():
+                rgb = torch.nan_to_num(rgb, nan=0.0, posinf=255.0, neginf=-255.0)
 
-        # --- Flow stream: load pre-cached [2, T_full, H_full, W_full] ---
-        flow = torch.from_numpy(
-            np.load(os.path.join(ds.fnames[index], "flow.npy"))
-        )
-        flow = flow[:, t_idx:t_idx + ds.clip_len,
-                       h_idx:h_idx + ds.crop_size,
-                       w_idx:w_idx + ds.crop_size]
-        flow = self._ensure_flow_clip_len(flow, ds.clip_len)
-        if do_flip:
-            flow = torch.flip(flow, dims=[3])  # flip width dimension
-            flow = flow.clone()
-            flow[0] = -flow[0]                 # negate x-component (direction reverses)
-        if not torch.isfinite(flow).all():
-            flow = torch.nan_to_num(flow, nan=0.0, posinf=1.0, neginf=-1.0)
-        flow = flow.clamp(-2.0, 2.0).float()
+            flow = torch.from_numpy(np.load(os.path.join(ds.fnames[index], "flow.npy")))
+            flow = flow[:, t_idx:t_idx + ds.clip_len,
+                           h_idx:h_idx + ds.crop_size,
+                           w_idx:w_idx + ds.crop_size]
+            flow = self._ensure_flow_clip_len(flow, ds.clip_len)
+            if do_flip:
+                flow = torch.flip(flow, dims=[3]).clone()
+                flow[0] = -flow[0]
+            if not torch.isfinite(flow).all():
+                flow = torch.nan_to_num(flow, nan=0.0, posinf=1.0, neginf=-1.0)
+            flow = flow.clamp(-2.0, 2.0).float()
+            return [rgb, flow], label
 
-        label = torch.from_numpy(np.array(ds.label_array[index]))
-        return [rgb, flow], label
+        # Eval: multi-view — apply _get_view_indices to both RGB and flow
+        T, H, W = buffer.shape[0], buffer.shape[1], buffer.shape[2]
+        view_indices = ds._get_view_indices(T, H, W)
+        flow_full = torch.from_numpy(np.load(os.path.join(ds.fnames[index], "flow.npy")))
+
+        rgb_views, flow_views = [], []
+        for t, h, w in view_indices:
+            rgb_clip = buffer[t:t + ds.clip_len, h:h + ds.crop_size, w:w + ds.crop_size].copy()
+            rgb_clip = ds.ensure_clip_len(rgb_clip, ds.clip_len)
+            rgb_clip = ds.normalize(rgb_clip)
+            rgb_t = torch.from_numpy(ds.to_tensor(rgb_clip))
+            if not torch.isfinite(rgb_t).all():
+                rgb_t = torch.nan_to_num(rgb_t, nan=0.0, posinf=255.0, neginf=-255.0)
+            rgb_views.append(rgb_t)
+
+            flow_clip = flow_full[:, t:t + ds.clip_len, h:h + ds.crop_size, w:w + ds.crop_size]
+            flow_clip = self._ensure_flow_clip_len(flow_clip, ds.clip_len)
+            if not torch.isfinite(flow_clip).all():
+                flow_clip = torch.nan_to_num(flow_clip, nan=0.0, posinf=1.0, neginf=-1.0)
+            flow_views.append(flow_clip.clamp(-2.0, 2.0).float())
+
+        if len(view_indices) == 1:
+            return [rgb_views[0], flow_views[0]], label
+        return [torch.stack(rgb_views, 0), torch.stack(flow_views, 0)], label
 
     def _ensure_flow_clip_len(self, flow, clip_len):
         """Pad or trim flow tensor [2, T, H, W] to exactly clip_len frames."""
@@ -180,6 +193,8 @@ def get_dataloaders(args):
         # Dataset instantiation
         clip_len = getattr(args, "clip_len", 16)
         ucf_split = getattr(args, "ucf_split", 1)
+        num_clips = getattr(args, "num_clips", 1)
+        num_crops = getattr(args, "num_crops", 1)
         train_ds = VideoDataset(
             dataset=args.dataset,
             split="train",
@@ -187,6 +202,7 @@ def get_dataloaders(args):
             preprocess=False,
             augment=True,
             ucf_split=ucf_split,
+            num_clips=1, num_crops=1,
         )
         val_ds = VideoDataset(
             dataset=args.dataset,
@@ -195,6 +211,7 @@ def get_dataloaders(args):
             preprocess=False,
             augment=False,
             ucf_split=ucf_split,
+            num_clips=num_clips, num_crops=num_crops,
         )
         test_ds = VideoDataset(
             dataset=args.dataset,
@@ -203,6 +220,7 @@ def get_dataloaders(args):
             preprocess=False,
             augment=False,
             ucf_split=ucf_split,
+            num_clips=num_clips, num_crops=num_crops,
         )
 
         if "fusion" in args.model:

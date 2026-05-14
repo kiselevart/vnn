@@ -87,7 +87,8 @@ class VideoDataset(Dataset):
             preprocess (bool): Determines whether to preprocess dataset. Default is False.
     """
 
-    def __init__(self, dataset='ucf101', split='train', clip_len=16, preprocess=False, augment=True, ucf_split=1):
+    def __init__(self, dataset='ucf101', split='train', clip_len=16, preprocess=False, augment=True, ucf_split=1,
+                 num_clips=1, num_crops=1):
         self.root_dir, base_output_dir = Path.db_dir(dataset)
         # UCF101 and HMDB51 have 3 official splits; store each split's frames separately
         # so multiple splits can coexist on disk without re-extraction.
@@ -100,6 +101,8 @@ class VideoDataset(Dataset):
         self.clip_len = clip_len
         self.split = split
         self.augment = augment
+        self.num_clips = num_clips
+        self.num_crops = num_crops
 
         # The following three parameters are chosen as described in the paper section 4.1
         self.resize_height = 128
@@ -185,22 +188,61 @@ class VideoDataset(Dataset):
     def __len__(self):
         return len(self.fnames)
 
+    def _get_view_indices(self, T, H, W):
+        """Return (t_start, h_start, w_start) tuples for all eval views.
+
+        Produces num_clips uniformly-spaced temporal clips × num_crops spatial
+        crops (1 = centre; 3 = left/centre/right along the longer axis).
+        """
+        crop = self.crop_size
+        h_c = max(0, (H - crop) // 2)
+        w_c = max(0, (W - crop) // 2)
+
+        if self.num_crops == 1:
+            spatial = [(h_c, w_c)]
+        else:  # 3 crops along the longer axis
+            if W >= H:
+                spatial = [(h_c, 0), (h_c, w_c), (h_c, max(0, W - crop))]
+            else:
+                spatial = [(0, w_c), (h_c, w_c), (max(0, H - crop), w_c)]
+
+        indices = []
+        max_t = max(0, T - self.clip_len)
+        for ci in range(self.num_clips):
+            if self.num_clips == 1:
+                t = max_t // 2
+            else:
+                t = int(round(max_t * ci / (self.num_clips - 1)))
+                t = max(0, min(t, max_t))
+            for h, w in spatial:
+                indices.append((t, h, w))
+        return indices
+
     def __getitem__(self, index):
-        # Loading and preprocessing.
         buffer = self.load_frames(self.fnames[index])
-        if self.augment:
-            buffer = self.crop(buffer, self.clip_len, self.crop_size)
-        else:
-            buffer = self.center_crop(buffer, self.clip_len, self.crop_size)
-        buffer = self.ensure_clip_len(buffer, self.clip_len)
         labels = np.array(self.label_array[index])
 
         if self.augment:
+            buffer = self.crop(buffer, self.clip_len, self.crop_size)
+            buffer = self.ensure_clip_len(buffer, self.clip_len)
             buffer = self.randomflip(buffer)
             buffer = self.color_jitter(buffer)
-        buffer = self.normalize(buffer)
-        buffer = self.to_tensor(buffer)
-        return torch.from_numpy(buffer), torch.from_numpy(labels)
+            buffer = self.normalize(buffer)
+            buffer = self.to_tensor(buffer)
+            return torch.from_numpy(buffer), torch.from_numpy(labels)
+
+        # Eval: one or more views via _get_view_indices
+        T, H, W = buffer.shape[0], buffer.shape[1], buffer.shape[2]
+        views = []
+        for t, h, w in self._get_view_indices(T, H, W):
+            clip = buffer[t:t + self.clip_len, h:h + self.crop_size, w:w + self.crop_size].copy()
+            clip = self.ensure_clip_len(clip, self.clip_len)
+            clip = self.normalize(clip)
+            clip = self.to_tensor(clip)
+            views.append(torch.from_numpy(clip))
+
+        out = torch.stack(views, 0) if len(views) > 1 else views[0]
+        return out, torch.from_numpy(labels)
 
     def _invalidate_filelist_cache(self, split):
         cache_path = os.path.join(self.output_dir, f'filelist_{split}.pkl')

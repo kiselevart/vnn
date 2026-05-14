@@ -64,6 +64,10 @@ def parse_args():
                         help="Train on all 3 UCF101/HMDB51 splits sequentially and report the mean test accuracy.")
 
     # Logging & System
+    parser.add_argument("--num_clips", type=int, default=1,
+                        help="Temporal clips per video for multi-view inference (1 = centre clip).")
+    parser.add_argument("--num_crops", type=int, default=1, choices=[1, 3],
+                        help="Spatial crops per clip for multi-view inference (1 = centre, 3 = left/centre/right).")
     parser.add_argument("--num_workers", type=int, default=16)
     parser.add_argument("--device", type=str, default="auto", choices=["auto", "cuda", "mps", "cpu"])
     parser.add_argument("--no_amp", action="store_true", help="Disable AMP (float16). Use for models without output clamping.")
@@ -115,6 +119,9 @@ class Trainer:
         self.total_params = sum(p.numel() for p in self.model.parameters())
         self.wandb.config.update({"total_params": self.total_params})
         print(f"==> Total Parameters: {self.total_params:,}")
+
+        if args.task == "video":
+            self._report_eval_config()
 
         # Optional Resume
         if args.resume and os.path.isfile(args.resume):
@@ -228,6 +235,99 @@ class Trainer:
                 w_max = max(w_max, p.data.abs().max().item())
         return w_sum / w_count if w_count > 0 else 0.0, w_max
 
+    def _compute_gflops(self, T, crop_size):
+        """Estimate GFLOPs for one view using forward hooks (Conv1/2/3d + Linear)."""
+        is_fusion = "fusion" in self.args.model
+        self.model.eval()
+        dummy_rgb  = torch.zeros(1, 3, T, crop_size, crop_size, device=self.device)
+        dummy_flow = torch.zeros(1, 2, T, crop_size, crop_size, device=self.device)
+        dummy_input = [dummy_rgb, dummy_flow] if is_fusion else dummy_rgb
+
+        # Try fvcore first for accuracy; fall through to manual hooks
+        try:
+            from fvcore.nn import FlopCountAnalysis
+            fa = FlopCountAnalysis(self.model, (dummy_input,))
+            fa.unsupported_ops_warnings(False)
+            fa.uncalled_modules_warnings(False)
+            gflops = fa.total() / 1e9
+            self.model.train()
+            return gflops
+        except Exception:
+            pass
+
+        total_macs = 0
+
+        def _conv_hook(m, _inp, out):
+            nonlocal total_macs
+            k = m.kernel_size if hasattr(m.kernel_size, "__len__") else (m.kernel_size,)
+            kernel_ops = m.in_channels // m.groups
+            for ki in k:
+                kernel_ops *= ki
+            total_macs += kernel_ops * out[0].numel()
+
+        def _linear_hook(m, _inp, out):
+            nonlocal total_macs
+            total_macs += m.in_features * out[0].numel()
+
+        hooks = []
+        for mod in self.model.modules():
+            if isinstance(mod, (nn.Conv1d, nn.Conv2d, nn.Conv3d)):
+                hooks.append(mod.register_forward_hook(_conv_hook))
+            elif isinstance(mod, nn.Linear):
+                hooks.append(mod.register_forward_hook(_linear_hook))
+
+        try:
+            with torch.no_grad():
+                self.model(dummy_input)
+        except Exception:
+            pass
+        finally:
+            for h in hooks:
+                h.remove()
+
+        self.model.train()
+        return (2 * total_macs) / 1e9  # 2 ops per MAC
+
+    def _report_eval_config(self):
+        """Print clip geometry, view count, and GFLOPs; log to W&B config."""
+        val_loader = self.loaders.get("val")
+        if val_loader is None:
+            return
+        raw_ds = getattr(val_loader.dataset, "dataset", val_loader.dataset)
+        crop_size = getattr(raw_ds, "crop_size", 112)
+        T          = self.args.clip_len
+        num_clips  = self.args.num_clips
+        num_crops  = self.args.num_crops
+        num_views  = num_clips * num_crops
+        gflops     = self._compute_gflops(T, crop_size)
+
+        print(f"  Clip config : {T} frames × {crop_size}×{crop_size}")
+        print(f"  Inference   : {num_clips} clip(s) × {num_crops} crop(s) = {num_views} view(s)")
+        if gflops is not None:
+            print(f"  GFLOPs/view : {gflops:.2f}")
+            print(f"  Total GFLOPs: {gflops * num_views:.2f}")
+        cfg = {"clip_frames": T, "spatial_size": crop_size,
+               "num_clips": num_clips, "num_crops": num_crops}
+        if gflops is not None:
+            cfg["gflops_per_view"] = round(gflops, 3)
+            cfg["total_gflops"]    = round(gflops * num_views, 3)
+        self.wandb.config.update(cfg)
+
+    def _flatten_views(self, inputs):
+        """Detect and flatten a multi-view batch [B, V, ...] → [B*V, ...].
+
+        Returns (flat_inputs, V) or (inputs, 1) if already single-view.
+        """
+        if isinstance(inputs, (list, tuple)):
+            if inputs[0].ndim == 6:  # fusion multi-view: [B, V, C, T, H, W]
+                B, V = inputs[0].shape[:2]
+                return [x.view(B * V, *x.shape[2:]) for x in inputs], V
+        else:
+            if inputs.ndim == 6:    # single-stream multi-view: [B, V, C, T, H, W]
+                B, V = inputs.shape[:2]
+                return inputs.view(B * V, *inputs.shape[2:]), V
+        return inputs, 1
+
     def _check_finite(self, tensor, name, epoch, batch_idx, mode):
         tensors = tensor if isinstance(tensor, (list, tuple)) else [tensor]
         if all(torch.isfinite(t).all() for t in tensors):
@@ -246,7 +346,8 @@ class Trainer:
         self.model.train() if is_train else self.model.eval()
         loader = self.loaders[mode if is_train else "val" if mode == "val" else "test"]
 
-        stats = {"loss": 0.0, "correct": 0, "total": 0, "batches": 0,
+        track_top5 = getattr(self.args, "num_classes", 0) and self.args.num_classes >= 5
+        stats = {"loss": 0.0, "correct": 0, "correct5": 0, "total": 0, "batches": 0,
                  "grad_norm": 0.0, "grad_batches": 0, "nan_grad_batches": 0}
         self.finite_debug_prints = 0
         if is_train:
@@ -264,7 +365,15 @@ class Trainer:
 
             with (autocast(device_type=self.device.type) if self.amp_enabled else contextlib.nullcontext()):
                 with contextlib.nullcontext() if is_train else torch.no_grad():
+                    # Flatten multi-view batch before forward, average logits after
+                    if not is_train:
+                        inputs, n_views = self._flatten_views(inputs)
+                    else:
+                        n_views = 1
                     outputs = self.model(inputs)
+                    if n_views > 1:
+                        B = outputs.shape[0] // n_views
+                        outputs = outputs.view(B, n_views, -1).mean(dim=1)
                     loss = self.criterion(outputs, targets)
 
             if not self._check_finite(outputs, "output", epoch, batch_idx, mode) or \
@@ -302,11 +411,17 @@ class Trainer:
             stats["batches"] += 1
             stats["total"] += targets.size(0)
             stats["correct"] += outputs.max(1)[1].eq(targets).sum().item()
+            if track_top5:
+                k = min(5, outputs.shape[1])
+                top5_pred = outputs.topk(k, dim=1).indices
+                stats["correct5"] += top5_pred.eq(targets.unsqueeze(1)).any(dim=1).sum().item()
 
             postfix = {
                 "L": f"{stats['loss']/stats['batches']:.3f}",
                 "A": f"{100.*stats['correct']/stats['total']:.1f}%",
             }
+            if track_top5 and stats["total"] > 0:
+                postfix["A5"] = f"{100.*stats['correct5']/stats['total']:.1f}%"
             if is_train:
                 postfix["gn"] = f"{stats['grad_norm']/max(1, stats['grad_batches']):.2f}"
                 if stats["nan_grad_batches"]:
@@ -314,10 +429,13 @@ class Trainer:
             pbar.set_postfix(postfix)
 
         n = stats["batches"]
+        total = stats["total"] or 1
         res = {
             "loss": stats["loss"] / n if n else 0,
-            "acc":  100. * stats["correct"] / stats["total"] if stats["total"] else 0,
+            "acc":  100. * stats["correct"] / total,
         }
+        if track_top5:
+            res["acc5"] = 100. * stats["correct5"] / total
         if is_train:
             res["grad_norm"] = stats["grad_norm"] / max(1, stats["grad_batches"])
             res["nan_grad_batches"] = stats["nan_grad_batches"]
@@ -334,7 +452,8 @@ class Trainer:
         if self.args.test_only:
             print(f"==> Running Test Evaluation...")
             test_stats = self._run_epoch(0, "test")
-            print(f"Test Result | Loss: {test_stats['loss']:.3f} | Acc: {test_stats['acc']:.2f}%")
+            acc5_str = f" | Top-5: {test_stats['acc5']:.2f}%" if "acc5" in test_stats else ""
+            print(f"Test Result | Loss: {test_stats['loss']:.3f} | Top-1: {test_stats['acc']:.2f}%{acc5_str}")
             self.wandb.finish()
             return test_stats["acc"]
 
@@ -344,10 +463,12 @@ class Trainer:
             self.scheduler.step()
             
             w_mean, w_max = self._get_weight_stats()
+            v_acc5_str = f" V_Acc5: {v_stats['acc5']:.1f}% |" if "acc5" in v_stats else ""
             print(
                 f"Ep {epoch+1} | "
                 f"T_Loss: {t_stats['loss']:.3f} T_Acc: {t_stats['acc']:.1f}% | "
-                f"V_Loss: {v_stats['loss']:.3f} V_Acc: {v_stats['acc']:.1f}% | "
+                f"V_Loss: {v_stats['loss']:.3f} V_Acc: {v_stats['acc']:.1f}% |"
+                f"{v_acc5_str} "
                 f"GN: {t_stats['grad_norm']:.3f} | "
                 f"NaN_Grad: {t_stats['nan_grad_batches']} Skipped: {self.skipped_stats['total']} | "
                 f"W_Max: {w_max:.2e}"
@@ -392,7 +513,8 @@ class Trainer:
         self._load_best_model()
         print(f"==> Running Final Test Evaluation...")
         test_stats = self._run_epoch(self.args.epochs - 1, "test")
-        print(f"Test Result | Loss: {test_stats['loss']:.3f} | Acc: {test_stats['acc']:.2f}%")
+        acc5_str = f" | Top-5: {test_stats['acc5']:.2f}%" if "acc5" in test_stats else ""
+        print(f"Test Result | Loss: {test_stats['loss']:.3f} | Top-1: {test_stats['acc']:.2f}%{acc5_str}")
         self.wandb.summary.update({f"test/{k}": v for k, v in test_stats.items()})
         self.wandb.finish()
         return test_stats["acc"]
