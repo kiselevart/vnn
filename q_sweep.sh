@@ -18,7 +18,7 @@ set -euo pipefail
 # Which GPUs to use (must match --nproc_per_node below).
 # GPU 5+6 have a broken P2P cross-socket link on this server — keep them
 # together or separated, but always set NCCL_P2P_DISABLE=1.
-GPUS="0,1,2,3"
+GPUS="4,5,6,7"
 NPROC=4
 
 DATASET="ucf101"
@@ -33,7 +33,7 @@ Q_VALUES=(1 2 4 8 16)
 # Training hyperparams.
 # LR scales linearly with GPU count (1e-4 per GPU × NPROC).
 EPOCHS=100
-BATCH_SIZE=8          # per GPU; effective batch = BATCH_SIZE × NPROC
+BATCH_SIZE=16          # per GPU; effective batch = BATCH_SIZE × NPROC
 LR="4e-4"             # 4 GPUs × 1e-4
 NUM_WORKERS=4
 
