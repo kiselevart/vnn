@@ -33,9 +33,16 @@ Q_VALUES=(1 2 4 8 16)
 # Training hyperparams.
 # LR scales linearly with GPU count (1e-4 per GPU × NPROC).
 EPOCHS=100
-BATCH_SIZE=16          # per GPU; effective batch = BATCH_SIZE × NPROC
+BATCH_SIZE=8           # per GPU; float32 uses 2× memory vs AMP, halve to compensate
 LR="4e-4"             # 4 GPUs × 1e-4
 NUM_WORKERS=4
+
+# Legacy model has no output clamping — incompatible with float16 AMP (products overflow).
+# Run in float32 to match the original paper's training setup.
+EXTRA_ARGS="--no_amp"
+
+# Random seed — set to an integer for reproducibility, or "" to disable.
+SEED=42
 
 # W&B group tag for this sweep (set --no_wandb below to disable W&B entirely).
 WANDB_GROUP="q_sweep"
@@ -113,6 +120,9 @@ for MODEL in "${MODELS[@]}"; do
     for Q in "${Q_VALUES[@]}"; do
         RUN_NAME="${DATASET}_${MODEL}_Q${Q}"
 
+        SEED_ARGS=()
+        [ -n "$SEED" ] && SEED_ARGS=(--seed "$SEED")
+
         run_ddp "$RUN_NAME" \
             --dataset    "$DATASET" \
             --model      "$MODEL" \
@@ -123,6 +133,8 @@ for MODEL in "${MODELS[@]}"; do
             --num_workers "$NUM_WORKERS" \
             --wandb_group "$WANDB_GROUP" \
             --run_name   "$RUN_NAME" \
+            "${SEED_ARGS[@]}" \
+            $EXTRA_ARGS \
             || FAILED+=("$RUN_NAME")
     done
 

@@ -14,7 +14,7 @@ from network.video.established_models import R2Plus1DNet, R3DNet
 
 # Higher-order video models
 from network.video_higher_order import (
-    VNNRgbHO, VNNFusionHO,
+    VNNRgbHO, VNNFusionHO, VNNAdditiveFusionHO,
     VNNLegacyFusion, VNNLegacyRgb,
     lvn_rgb_signed, lvn_fusion_signed,
     lvn_laguerre_rgb, lvn_laguerre_fusion,
@@ -148,6 +148,12 @@ def get_model(args, device):
         elif args.model == "vnn_fusion_ho":
             net = VNNFusionHO(num_classes=args.num_classes, cubic_mode=args.cubic_mode,
                               use_cubic=not args.disable_cubic, clip_len=clip_len)
+
+        elif args.model == "vnn_additive_fusion_ho":
+            # Fusion ablation: cat(rgb, flow) only — no cross-stream product.
+            # Compare against vnn_fusion_ho to isolate the rgb*flow interaction.
+            net = VNNAdditiveFusionHO(num_classes=args.num_classes, cubic_mode=args.cubic_mode,
+                                      use_cubic=not args.disable_cubic, clip_len=clip_len)
 
         # --- Laguerre VNN ablations ---
         elif args.model == "lvn_rgb_signed":

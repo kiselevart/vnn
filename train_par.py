@@ -73,6 +73,8 @@ def parse_args():
     parser.add_argument("--resume", type=str, default=None)
     parser.add_argument("--run_name", type=str, required=True)
     parser.add_argument("--test_only", action="store_true")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="Global random seed for reproducibility (default: no fixed seed).")
 
     args = parser.parse_args()
 
@@ -337,6 +339,32 @@ class Trainer:
                 idx += 1
         return stats
 
+    def _collect_block_grad_norms(self, acc):
+        """After backward(): accumulate per-block lin/quad weight grad norms into acc.
+
+        Keys: "bg/b{i}/lin" and "bg/b{i}/quad". Divide by grad_batches at epoch end.
+        Uses raw_model so this works correctly under DDP wrapping.
+        """
+        i = 0
+        for mod in self.raw_model.modules():
+            has_lin  = hasattr(mod, 'conv_lin')  or hasattr(mod, 'lin_convs')
+            has_quad = hasattr(mod, 'conv_quad') or hasattr(mod, 'quad_convs')
+            if not (has_lin and has_quad):
+                continue
+            if hasattr(mod, 'conv_lin') and mod.conv_lin.weight.grad is not None:
+                acc[f"bg/b{i}/lin"] = acc.get(f"bg/b{i}/lin", 0.0) + mod.conv_lin.weight.grad.norm().item()
+            elif hasattr(mod, 'lin_convs'):
+                norms = [c.weight.grad.norm().item() for c in mod.lin_convs if c.weight.grad is not None]
+                if norms:
+                    acc[f"bg/b{i}/lin"] = acc.get(f"bg/b{i}/lin", 0.0) + sum(norms) / len(norms)
+            if hasattr(mod, 'conv_quad') and mod.conv_quad.weight.grad is not None:
+                acc[f"bg/b{i}/quad"] = acc.get(f"bg/b{i}/quad", 0.0) + mod.conv_quad.weight.grad.norm().item()
+            elif hasattr(mod, 'quad_convs'):
+                norms = [c.weight.grad.norm().item() for c in mod.quad_convs if c.weight.grad is not None]
+                if norms:
+                    acc[f"bg/b{i}/quad"] = acc.get(f"bg/b{i}/quad", 0.0) + sum(norms) / len(norms)
+            i += 1
+
     def _get_weight_stats(self):
         w_sum, w_count, w_max = 0.0, 0, 0.0
         with torch.no_grad():
@@ -461,6 +489,7 @@ class Trainer:
         track_top5 = getattr(self.args, "num_classes", 0) and self.args.num_classes >= 5
         stats = {"loss": 0.0, "correct": 0, "correct5": 0, "total": 0, "batches": 0,
                  "grad_norm": 0.0, "grad_batches": 0, "nan_grad_batches": 0}
+        block_grad_acc: dict = {}
         self.finite_debug_prints = 0
         if is_train:
             self.skipped_stats = {"total": 0, "input": 0, "output": 0, "loss": 0}
@@ -516,6 +545,7 @@ class Trainer:
                     grad_norm = torch.nn.utils.clip_grad_norm_(self.raw_model.parameters(), 1.0).item()
                     stats["grad_norm"]   += grad_norm
                     stats["grad_batches"] += 1
+                    self._collect_block_grad_norms(block_grad_acc)
                     if self.scaler:
                         self.scaler.step(self.optimizer)
                         self.scaler.update()
@@ -569,6 +599,9 @@ class Trainer:
         if is_train:
             res["grad_norm"]        = stats["grad_norm"] / max(1, stats["grad_batches"])
             res["nan_grad_batches"] = stats["nan_grad_batches"]
+            n_bg = max(1, stats["grad_batches"])
+            for k, v in block_grad_acc.items():
+                res[k] = v / n_bg
         return res
 
     # ------------------------------------------------------------------
@@ -673,4 +706,15 @@ class Trainer:
 
 if __name__ == "__main__":
     args = parse_args()
+
+    if args.seed is not None:
+        import random
+        import numpy as np
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+        torch.manual_seed(args.seed)
+        torch.cuda.manual_seed_all(args.seed)
+        # Each DDP rank sets the same seed so model weights init identically.
+        # DDP syncs weights from rank 0 on first backward regardless.
+
     Trainer(args).run()

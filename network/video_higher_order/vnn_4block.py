@@ -207,3 +207,42 @@ class VNNFusionHO(nn.Module):
                 yield p
 
 
+class VNNAdditiveFusionHO(nn.Module):
+    """Two-stream fusion using concatenation only — no cross-stream product.
+
+    Fusion: cat(rgb, flow) → 192ch → FusionHead.
+
+    Use for the fusion ablation: compare this against VNNFusionHO (which adds
+    rgb*flow as a third stream at 288ch) to isolate the effect of the
+    cross-stream quadratic interaction term claimed in Proposition 2.
+
+    Args:
+        num_classes: Number of output classes.
+        cubic_mode: 'symmetric' or 'general' cubic factorization.
+    """
+
+    def __init__(self, num_classes, cubic_mode='symmetric', use_cubic=True, clip_len=16):
+        super().__init__()
+        self.model_rgb  = Backbone4Block(num_ch=3, cubic_mode=cubic_mode, use_cubic=use_cubic)
+        self.model_of   = Backbone4Block(num_ch=2, cubic_mode=cubic_mode, use_cubic=use_cubic)
+        stream_ch = 96
+        self.model_fuse = FusionHead(num_classes=num_classes, num_ch=stream_ch * 2,
+                                     cubic_mode=cubic_mode, use_cubic=use_cubic,
+                                     clip_len=clip_len)
+
+    def forward(self, x):
+        rgb, flow = x
+        out_rgb = self.model_rgb(rgb)
+        out_of  = self.model_of(flow)
+        return self.model_fuse(torch.cat((out_rgb, out_of), dim=1))
+
+    def get_1x_lr_params(self):
+        skip = {id(p) for p in self.model_fuse.classifier.fc.parameters()}
+        for p in self.parameters():
+            if p.requires_grad and id(p) not in skip:
+                yield p
+
+    def get_10x_lr_params(self):
+        for p in self.model_fuse.classifier.fc.parameters():
+            if p.requires_grad:
+                yield p
