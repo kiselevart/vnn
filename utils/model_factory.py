@@ -15,6 +15,7 @@ from network.video.established_models import R2Plus1DNet, R3DNet
 # Higher-order video models
 from network.video_higher_order import (
     VNNRgbHO, VNNFusionHO,
+    VNNLegacyFusion, VNNLegacyRgb,
     lvn_rgb_signed, lvn_fusion_signed,
     lvn_laguerre_rgb, lvn_laguerre_fusion,
     lvn_monomial_rgb, lvn_monomial_fusion,
@@ -130,6 +131,15 @@ def get_model(args, device):
                     return self.model_fuse(torch.cat((out_rgb, out_of), 1))
 
             net = VideoVNNFusionOrig(num_classes=args.num_classes)
+
+        elif args.model == "vnn_legacy_fusion":
+            # Legacy arch: no gates, no shortcuts, no cubic, no clamping, additive fusion.
+            # Use for ablations comparing against original paper. --Q controls backbone rank.
+            net = VNNLegacyFusion(num_classes=args.num_classes, Q=args.Q, clip_len=clip_len)
+
+        elif args.model == "vnn_legacy_rgb":
+            # Legacy arch: RGB-only single stream variant.
+            net = VNNLegacyRgb(num_classes=args.num_classes, Q=args.Q, clip_len=clip_len)
 
         elif args.model == "vnn_rgb_ho":
             net = VNNRgbHO(num_classes=args.num_classes, cubic_mode=args.cubic_mode,

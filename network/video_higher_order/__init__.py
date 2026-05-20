@@ -6,6 +6,7 @@ Volterra interactions for video classification.
 """
 
 from .vnn_4block import VNNRgbHO, VNNFusionHO, Backbone4Block, FusionHead
+from .vnn_legacy import VNNLegacyFusion, VNNLegacyRgb
 from .volterra_blocks import (
     VolterraBlock3D, MultiKernelBlock3D, ClassifierHead,
     volterra_quadratic, volterra_cubic_symmetric, volterra_cubic_general, init_vnn_weights,
@@ -27,6 +28,8 @@ from .laguerre_conv import (
 __all__ = [
     # Volterra end-to-end models
     "VNNRgbHO", "VNNFusionHO",
+    # Legacy models (match original paper architecture — use for ablations)
+    "VNNLegacyFusion", "VNNLegacyRgb",
     # Backbones and heads
     "Backbone4Block", "FusionHead",
     # Volterra building blocks
