@@ -37,7 +37,11 @@ NUM_WORKERS=4
 # float32 required: vnn_fusion_ho has clamping but keep consistent with legacy runs.
 EXTRA_ARGS="--no_amp"
 
-SEED=42
+# Seeds to run per model. Add more for multi-seed variance, e.g. (42 123 456).
+SEEDS=(42)
+
+# torchrun master port — change if another torchrun job is already using the default.
+MASTER_PORT=29500
 
 WANDB_GROUP="fusion_ablation"
 
@@ -52,7 +56,8 @@ echo "Fusion ablation — $(date '+%Y-%m-%d %H:%M:%S')"
 echo "  Dataset:  $DATASET"
 echo "  Models:   ${MODELS[*]}"
 echo "  Q:        $Q (fixed)"
-echo "  GPUs:     $GPUS  (nproc=$NPROC)"
+echo "  Seeds:    ${SEEDS[*]}"
+echo "  GPUs:     $GPUS  (nproc=$NPROC)  port=$MASTER_PORT"
 echo "  Epochs:   $EPOCHS   BS/GPU: $BATCH_SIZE   LR: $LR"
 echo "  Logs:     $LOG_DIR/"
 echo ""
@@ -72,7 +77,7 @@ run_ddp() {
 
     {
         echo "=== $run_name"
-        echo "CMD: NCCL_P2P_DISABLE=1 CUDA_VISIBLE_DEVICES=$GPUS torchrun --nproc_per_node=$NPROC train_par.py $*"
+        echo "CMD: NCCL_P2P_DISABLE=1 CUDA_VISIBLE_DEVICES=$GPUS torchrun --nproc_per_node=$NPROC --master_port=$MASTER_PORT train_par.py $*"
         echo "START: $(date '+%Y-%m-%d %H:%M:%S')"
         echo "================================================================"
     } > "$log" 2>&1
@@ -80,7 +85,7 @@ run_ddp() {
     echo -n "  Running $run_name ... "
 
     NCCL_P2P_DISABLE=1 CUDA_VISIBLE_DEVICES="$GPUS" \
-        torchrun --nproc_per_node="$NPROC" train_par.py "$@" \
+        torchrun --nproc_per_node="$NPROC" --master_port="$MASTER_PORT" train_par.py "$@" \
         >> "$log" 2>&1
     local status=$?
 
@@ -108,24 +113,25 @@ run_ddp() {
 FAILED=()
 
 for MODEL in "${MODELS[@]}"; do
-    RUN_NAME="${DATASET}_${MODEL}_Q${Q}_fusion_ablation"
+    echo "--- Model: $MODEL ---"
+    for SEED in "${SEEDS[@]}"; do
+        RUN_NAME="${DATASET}_${MODEL}_Q${Q}_seed${SEED}_fusion_ablation"
 
-    SEED_ARGS=()
-    [ -n "$SEED" ] && SEED_ARGS=(--seed "$SEED")
-
-    run_ddp "$RUN_NAME" \
-        --dataset     "$DATASET" \
-        --model       "$MODEL" \
-        --Q           "$Q" \
-        --epochs      "$EPOCHS" \
-        --batch_size  "$BATCH_SIZE" \
-        --lr          "$LR" \
-        --num_workers "$NUM_WORKERS" \
-        --wandb_group "$WANDB_GROUP" \
-        --run_name    "$RUN_NAME" \
-        "${SEED_ARGS[@]}" \
-        $EXTRA_ARGS \
-        || FAILED+=("$RUN_NAME")
+        run_ddp "$RUN_NAME" \
+            --dataset     "$DATASET" \
+            --model       "$MODEL" \
+            --Q           "$Q" \
+            --epochs      "$EPOCHS" \
+            --batch_size  "$BATCH_SIZE" \
+            --lr          "$LR" \
+            --num_workers "$NUM_WORKERS" \
+            --wandb_group "$WANDB_GROUP" \
+            --run_name    "$RUN_NAME" \
+            --seed        "$SEED" \
+            $EXTRA_ARGS \
+            || FAILED+=("$RUN_NAME")
+    done
+    echo ""
 done
 
 # =============================================================================
@@ -135,16 +141,19 @@ done
 echo ""
 echo "=============================== SUMMARY ==============================="
 echo ""
-echo "  Fusion ablation (Q=$Q, seed=$SEED):"
+echo "  Fusion ablation (Q=$Q, seeds=${SEEDS[*]}):"
 for MODEL in "${MODELS[@]}"; do
-    RUN_NAME="${DATASET}_${MODEL}_Q${Q}_fusion_ablation"
-    LOG="$LOG_DIR/${RUN_NAME}.log"
-    if grep -q "exit=0" "$LOG" 2>/dev/null; then
-        BEST=$(grep -oP "(?<=Best acc: )\S+" "$LOG" 2>/dev/null | tail -1 || echo "?")
-        echo "    $MODEL  ✓  best val acc: $BEST"
-    else
-        echo "    $MODEL  ✗  (failed — check $LOG)"
-    fi
+    echo "  $MODEL:"
+    for SEED in "${SEEDS[@]}"; do
+        RUN_NAME="${DATASET}_${MODEL}_Q${Q}_seed${SEED}_fusion_ablation"
+        LOG="$LOG_DIR/${RUN_NAME}.log"
+        if grep -q "exit=0" "$LOG" 2>/dev/null; then
+            BEST=$(grep -oP "(?<=Best acc: )\S+" "$LOG" 2>/dev/null | tail -1 || echo "?")
+            echo "    seed=$SEED  ✓  best val acc: $BEST"
+        else
+            echo "    seed=$SEED  ✗  (failed — check $LOG)"
+        fi
+    done
 done
 
 echo ""
