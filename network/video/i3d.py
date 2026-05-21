@@ -81,6 +81,29 @@ class InceptionModule(nn.Module):
         ], dim=1)
 
 
+class AuxiliaryHead(nn.Module):
+    """
+    Auxiliary classification head (GoogLeNet / I3D paper).
+
+    Attached at mixed_4b and mixed_4e during training (weight 0.3).
+    Discarded at inference — call only when model.training.
+    """
+
+    def __init__(self, in_channels: int, num_classes: int, dropout: float = 0.7):
+        super().__init__()
+        self.pool = nn.AdaptiveAvgPool3d((None, 4, 4))  # spatial downsample only
+        self.conv = Unit3D(in_channels, 128)              # 1×1×1
+        self.gap = nn.AdaptiveAvgPool3d(1)
+        self.dropout = nn.Dropout(p=dropout)
+        self.fc = nn.Linear(128, num_classes)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.pool(x)
+        x = self.conv(x)
+        x = self.gap(x).flatten(1)
+        return self.fc(self.dropout(x))
+
+
 class I3D(nn.Module):
     """
     Single-stream I3D backbone.
@@ -138,6 +161,10 @@ class I3D(nn.Module):
         self.dropout = nn.Dropout(p=dropout_prob)
         self.fc = nn.Linear(1024, num_classes)
 
+        # Auxiliary classifiers (used during training only, weight 0.3 each)
+        self.aux1 = AuxiliaryHead(512, num_classes)  # after mixed_4b (512ch)
+        self.aux2 = AuxiliaryHead(528, num_classes)  # after mixed_4e (528ch)
+
         self._init_weights()
 
     def _init_weights(self):
@@ -151,7 +178,7 @@ class I3D(nn.Module):
                 nn.init.normal_(m.weight, 0, 0.01)
                 nn.init.constant_(m.bias, 0)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor):
         # Stem
         x = self.conv1a(x)
         x = self.pool1(x)
@@ -166,9 +193,11 @@ class I3D(nn.Module):
 
         # Mixed 4
         x = self.mixed_4b(x)
+        aux1 = self.aux1(x) if self.training else None
         x = self.mixed_4c(x)
         x = self.mixed_4d(x)
         x = self.mixed_4e(x)
+        aux2 = self.aux2(x) if self.training else None
         x = self.mixed_4f(x)
         x = self.pool4(x)
 
@@ -177,10 +206,13 @@ class I3D(nn.Module):
         x = self.mixed_5c(x)
 
         # Head
-        x = self.avg_pool(x)      # [B, 1024, 1, 1, 1]
-        x = x.flatten(1)           # [B, 1024]
+        x = self.avg_pool(x).flatten(1)
         x = self.dropout(x)
-        return self.fc(x)          # [B, num_classes]
+        main = self.fc(x)
+
+        if self.training:
+            return main, [aux1, aux2]
+        return main
 
     def get_1x_lr_params(self):
         fc_ids = {id(p) for p in self.fc.parameters()}
@@ -218,7 +250,14 @@ class I3DTwoStream(nn.Module):
 
     def forward(self, x):
         rgb, flow = x
-        return self.rgb_net(rgb), self.flow_net(flow)
+        rgb_out  = self.rgb_net(rgb)
+        flow_out = self.flow_net(flow)
+        if self.training:
+            rgb_main,  rgb_aux  = rgb_out
+            flow_main, flow_aux = flow_out
+            # aux: list of tensors from both streams, to be weighted 0.3 each
+            return rgb_main, flow_main, rgb_aux + flow_aux
+        return rgb_out, flow_out
 
     def get_1x_lr_params(self):
         fc_ids = {id(p)

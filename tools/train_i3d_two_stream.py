@@ -231,10 +231,16 @@ class I3DTrainer:
                         else torch.no_grad())
 
             with amp_ctx, grad_ctx:
-                rgb_logits, flow_logits = self.model([rgb, flow])
-                loss_rgb  = self.criterion(rgb_logits,  targets)
-                loss_flow = self.criterion(flow_logits, targets)
-                loss = (loss_rgb + loss_flow) * 0.5
+                out = self.model([rgb, flow])
+                if is_train:
+                    rgb_logits, flow_logits, aux_logits = out
+                else:
+                    rgb_logits, flow_logits = out
+                    aux_logits = []
+                loss = (self.criterion(rgb_logits, targets) +
+                        self.criterion(flow_logits, targets)) * 0.5
+                for aux in aux_logits:
+                    loss = loss + 0.3 * self.criterion(aux, targets)
 
             if not torch.isfinite(loss):
                 stats["skipped"] += 1
