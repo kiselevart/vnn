@@ -1,0 +1,48 @@
+=== ucf101_vnn_additive_fusion_ho_seed42_no_cubic_split2
+CMD: NCCL_P2P_DISABLE=1 CUDA_VISIBLE_DEVICES=4,5,6,7 torchrun --nproc_per_node=4 --master_port=29502 train_par.py --dataset ucf101 --model vnn_additive_fusion_ho --split 2 --epochs 100 --batch_size 8 --lr 4e-4 --num_workers 4 --wandb_group fusion_ablation_no_cubic_splits --run_name ucf101_vnn_additive_fusion_ho_seed42_no_cubic_split2 --seed 42 --no_amp --disable_cubic
+START: 2026-05-23 02:16:40
+================================================================
+W0523 02:16:42.188000 268504 site-packages/torch/distributed/run.py:766] 
+W0523 02:16:42.188000 268504 site-packages/torch/distributed/run.py:766] *****************************************
+W0523 02:16:42.188000 268504 site-packages/torch/distributed/run.py:766] Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed. 
+W0523 02:16:42.188000 268504 site-packages/torch/distributed/run.py:766] *****************************************
+==> Device: cuda:0  World size: 4
+W0523 02:17:20.558000 268504 site-packages/torch/distributed/elastic/multiprocessing/api.py:900] Sending process 269445 closing signal SIGTERM
+W0523 02:17:20.559000 268504 site-packages/torch/distributed/elastic/multiprocessing/api.py:900] Sending process 269447 closing signal SIGTERM
+W0523 02:17:20.559000 268504 site-packages/torch/distributed/elastic/multiprocessing/api.py:900] Sending process 269448 closing signal SIGTERM
+E0523 02:17:20.768000 268504 site-packages/torch/distributed/elastic/multiprocessing/api.py:874] failed (exitcode: -11) local_rank: 1 (pid: 269446) of binary: /home/artem/miniconda3/envs/vnn/bin/python3.11
+Traceback (most recent call last):
+  File "/home/artem/miniconda3/envs/vnn/bin/torchrun", line 6, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/home/artem/miniconda3/envs/vnn/lib/python3.11/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py", line 355, in wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/artem/miniconda3/envs/vnn/lib/python3.11/site-packages/torch/distributed/run.py", line 892, in main
+    run(args)
+  File "/home/artem/miniconda3/envs/vnn/lib/python3.11/site-packages/torch/distributed/run.py", line 883, in run
+    elastic_launch(
+  File "/home/artem/miniconda3/envs/vnn/lib/python3.11/site-packages/torch/distributed/launcher/api.py", line 139, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/artem/miniconda3/envs/vnn/lib/python3.11/site-packages/torch/distributed/launcher/api.py", line 270, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+========================================================
+train_par.py FAILED
+--------------------------------------------------------
+Failures:
+  <NO_OTHER_FAILURES>
+--------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2026-05-23_02:17:20
+  host      : ubuntu-server
+  rank      : 1 (local_rank: 1)
+  exitcode  : -11 (pid: 269446)
+  error_file: <N/A>
+  traceback : Signal 11 (SIGSEGV) received by PID 269446
+========================================================
+
+================================================================
+END: 2026-05-23 02:17:21  exit=1
