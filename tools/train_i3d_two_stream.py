@@ -20,8 +20,12 @@ import argparse
 import atexit
 import contextlib
 import os
+import sys
 import time
 from datetime import datetime
+
+# Allow running as `torchrun tools/train_i3d_two_stream.py` from the vnn/ root.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import torch
 import torch.distributed as dist
