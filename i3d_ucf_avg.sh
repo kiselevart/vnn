@@ -82,7 +82,7 @@ run_ddp() {
 
     if [ $status -eq 0 ]; then
         local test_acc
-        test_acc=$(grep -oP "(?<=Top-1: )\d+\.\d+" "$log" 2>/dev/null | tail -1 || true)
+        test_acc=$(grep "Top-1:" "$log" 2>/dev/null | grep -oE "[0-9]+\.[0-9]+" | tail -1 || true)
         [ -n "$test_acc" ] && echo "done  (test acc: ${test_acc}%)" || echo "done"
     else
         echo "FAILED (exit $status) — see $log"
@@ -124,7 +124,7 @@ for SPLIT in "${SPLITS[@]}"; do
     RUN_NAME="ucf101_i3d_twostream_seed${SEED}_split${SPLIT}"
     LOG="$LOG_DIR/${RUN_NAME}.log"
     if grep -q "exit=0" "$LOG" 2>/dev/null; then
-        ACC=$(grep -oP "(?<=Top-1: )\d+\.\d+" "$LOG" 2>/dev/null | tail -1 || echo "")
+        ACC=$(grep "Top-1:" "$LOG" 2>/dev/null | grep -oE "[0-9]+\.[0-9]+" | tail -1 || echo "")
         if [ -n "$ACC" ]; then
             echo "  split $SPLIT  ✓  test acc: ${ACC}%"
             ACCS+=("$ACC")
