@@ -135,12 +135,16 @@ class VideoDataset(Dataset):
             for s in ['train', 'val', 'test']:
                 self._invalidate_filelist_cache(s)
 
+        self.fnames, labels = [], []
         cache_path = os.path.join(self.output_dir, f'filelist_{split}.pkl')
         if os.path.exists(cache_path):
             with open(cache_path, 'rb') as f:
                 self.fnames, labels = pickle.load(f)
-            print(f'Number of {split} videos: {len(self.fnames):d} (from cache)')
-        else:
+            if self.fnames:
+                print(f'Number of {split} videos: {len(self.fnames):d} (from cache)')
+            else:
+                os.remove(cache_path)
+        if not os.path.exists(cache_path):
             self.fnames, labels = [], []
             skipped = 0
             if os.path.exists(folder):
@@ -251,6 +255,7 @@ class VideoDataset(Dataset):
         if not os.path.exists(train_dir):
             return False
 
+        found_any = False
         for ii, video_class in enumerate(os.listdir(train_dir)):
             class_dir = os.path.join(train_dir, video_class)
             if not os.path.isdir(class_dir):
@@ -265,11 +270,11 @@ class VideoDataset(Dataset):
                 image = cv2.imread(os.path.join(video_dir, frames[0]))
                 if image is None or image.shape[0] != self.resize_height or image.shape[1] != self.resize_width:
                     return False
-                else:
-                    break
-            if ii == 10:
+                found_any = True
                 break
-        return True
+            if found_any or ii == 10:
+                break
+        return found_any
 
     def preprocess(self):
         if not os.path.exists(self.output_dir):
