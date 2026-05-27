@@ -72,6 +72,8 @@ def parse_args():
     parser.add_argument("--no_amp",       action="store_true",
                         help="Disable AMP (float16).  Not usually needed for I3D.")
     parser.add_argument("--no_wandb",     action="store_true")
+    parser.add_argument("--wandb_group",  type=str,   default=None,
+                        help="W&B run group for grouping multi-split runs.")
     parser.add_argument("--resume",       type=str,   default=None,
                         help="Path to checkpoint to resume from.")
     parser.add_argument("--test_only",    action="store_true",
@@ -161,7 +163,8 @@ class I3DTrainer:
             os.makedirs(os.path.join(self.out_dir, "checkpoints"), exist_ok=True)
             import wandb
             self.wandb = wandb
-            self.wandb.init(name=args.run_name, dir=self.out_dir, config=vars(args))
+            self.wandb.init(name=args.run_name, group=args.wandb_group,
+                            dir=self.out_dir, config=vars(args))
             atexit.register(lambda: self.wandb.finish() if self.wandb else None)
         else:
             if self.is_main:
