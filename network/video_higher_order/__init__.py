@@ -24,6 +24,13 @@ from .laguerre_conv import (
     LaguerreConv3d_Full,
     lvn_laguerre_full_rgb, lvn_laguerre_full_fusion,
 )
+from .ortho_conv import (
+    OrthoConv3d, OrthoVolterraBlock3D, OrthoBackbone, OrthoRgb, OrthoFusion,
+    compute_ortho_basis,
+    lvn_legendre_rgb, lvn_legendre_fusion,
+    lvn_chebyshev_rgb, lvn_chebyshev_fusion,
+    lvn_hermite_rgb, lvn_hermite_fusion,
+)
 
 __all__ = [
     # Volterra end-to-end models
@@ -46,4 +53,10 @@ __all__ = [
     # Full 3D Laguerre basis (Tucker decomposition over T, H, W)
     "LaguerreConv3d_Full",
     "lvn_laguerre_full_rgb", "lvn_laguerre_full_fusion",
+    # Orthogonal polynomial basis models (Legendre, Chebyshev, Hermite)
+    "OrthoConv3d", "OrthoVolterraBlock3D", "OrthoBackbone", "OrthoRgb", "OrthoFusion",
+    "compute_ortho_basis",
+    "lvn_legendre_rgb", "lvn_legendre_fusion",
+    "lvn_chebyshev_rgb", "lvn_chebyshev_fusion",
+    "lvn_hermite_rgb", "lvn_hermite_fusion",
 ]

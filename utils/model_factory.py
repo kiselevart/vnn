@@ -20,6 +20,9 @@ from network.video_higher_order import (
     lvn_laguerre_rgb, lvn_laguerre_fusion,
     lvn_monomial_rgb, lvn_monomial_fusion,
     lvn_laguerre_full_rgb, lvn_laguerre_full_fusion,
+    lvn_legendre_rgb, lvn_legendre_fusion,
+    lvn_chebyshev_rgb, lvn_chebyshev_fusion,
+    lvn_hermite_rgb, lvn_hermite_fusion,
 )
 
 from network.video import vnn_fusion_highQv2
@@ -189,6 +192,36 @@ def get_model(args, device):
                 n_lag_t=getattr(args, "n_lag_t", None),
                 n_lag_s=getattr(args, "n_lag_s", None),
             )
+
+        elif args.model == "lvn_legendre_rgb":
+            net = lvn_legendre_rgb(num_classes=args.num_classes, clip_len=clip_len,
+                                   n_poly=getattr(args, "n_lag", None),
+                                   alpha=getattr(args, "alpha", 1.0))
+
+        elif args.model == "lvn_legendre_fusion":
+            net = lvn_legendre_fusion(num_classes=args.num_classes, clip_len=clip_len,
+                                      n_poly=getattr(args, "n_lag", None),
+                                      alpha=getattr(args, "alpha", 1.0))
+
+        elif args.model == "lvn_chebyshev_rgb":
+            net = lvn_chebyshev_rgb(num_classes=args.num_classes, clip_len=clip_len,
+                                    n_poly=getattr(args, "n_lag", None),
+                                    alpha=getattr(args, "alpha", 1.0))
+
+        elif args.model == "lvn_chebyshev_fusion":
+            net = lvn_chebyshev_fusion(num_classes=args.num_classes, clip_len=clip_len,
+                                       n_poly=getattr(args, "n_lag", None),
+                                       alpha=getattr(args, "alpha", 1.0))
+
+        elif args.model == "lvn_hermite_rgb":
+            net = lvn_hermite_rgb(num_classes=args.num_classes, clip_len=clip_len,
+                                  n_poly=getattr(args, "n_lag", None),
+                                  alpha=getattr(args, "alpha", 1.0))
+
+        elif args.model == "lvn_hermite_fusion":
+            net = lvn_hermite_fusion(num_classes=args.num_classes, clip_len=clip_len,
+                                     n_poly=getattr(args, "n_lag", None),
+                                     alpha=getattr(args, "alpha", 1.0))
 
         elif args.model == "r2plus1d":
             net = R2Plus1DNet(num_classes=args.num_classes)
