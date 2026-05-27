@@ -184,7 +184,7 @@ class I3DTrainer:
             ds = FlowDatasetWrapper(
                 VideoDataset(dataset=args.dataset, split=split,
                              clip_len=args.clip_len, preprocess=False,
-                             augment=is_train)
+                             augment=is_train, ucf_split=args.split)
             )
             if self.ddp:
                 sampler = DistributedSampler(

@@ -331,8 +331,8 @@ class VideoDataset(Dataset):
 
                 for group in distinct_groups:
                     target_partition = 'val' if group in val_groups else 'train'
-                    # Set frames directly inside the respective model variants target configuration output directory
-                    save_dir = os.path.join(self.output_dir if f'split{self.ucf_split}' in self.output_dir else os.path.dirname(self.output_dir), split_name, target_partition, action_name)
+                    base_dir = os.path.dirname(self.output_dir)
+                    save_dir = os.path.join(base_dir, split_name, target_partition, action_name)
                     os.makedirs(save_dir, exist_ok=True)
 
                     for vid in group_to_vids[group]:
@@ -348,7 +348,7 @@ class VideoDataset(Dataset):
                 if not os.path.isdir(action_dir):
                     continue
 
-                save_dir = os.path.join(self.output_dir if f'split{self.ucf_split}' in self.output_dir else os.path.dirname(self.output_dir), split_name, 'test', action_name)
+                save_dir = os.path.join(os.path.dirname(self.output_dir), split_name, 'test', action_name)
                 os.makedirs(save_dir, exist_ok=True)
 
                 for vid in self._collect_video_entries(action_dir):
