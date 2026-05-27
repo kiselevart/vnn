@@ -94,6 +94,7 @@ export UCF101_PREPROCESSED=/path/to/ucf101_pre  # extracted frames (auto-created
 # HMDB51
 export HMDB51_ROOT=/path/to/hmdb51
 export HMDB51_PREPROCESSED=/path/to/hmdb51_pre
+```
 
 ### Video Directory Structure
 
@@ -115,53 +116,73 @@ ucf101/
 
 Frame extraction runs automatically on the first training call and is cached in the preprocessed directory. Optical flow for fusion models is computed on-the-fly by default (no pre-extraction needed).
 
+Preprocessed frames are split-aware: the first run for a given split writes to `ucf101_pre/split1/`, `ucf101_pre/split2/`, etc., so multiple splits coexist on disk.
+
 ---
 
 ## Training
 
-All training is handled through the single `train.py` entrypoint. The `--task` flag is inferred automatically from `--dataset` (CIFAR-10 → `cifar`, everything else → `video`).
+### Single GPU
 
-### CIFAR-10
+All single-GPU training goes through `train.py`:
 
 ```bash
-# ResNet18-equivalent VNN with Chebyshev orthogonal polynomial features
-python3 train.py \
-  --dataset cifar10 \
-  --model vnn_ortho \
-  --epochs 50 \
-  --batch_size 128 \
-  --lr 0.01
+# CIFAR-10
+python3 train.py --dataset cifar10 --model vnn_ortho --epochs 50 --batch_size 128 --lr 0.01
+
+# Video — RGB only
+python3 train.py --dataset ucf101 --model vnn_rgb_ho --epochs 100 --batch_size 8 --lr 1e-4 --num_workers 8
+
+# Video — Two-stream fusion (RGB + optical flow)
+python3 train.py --dataset ucf101 --model vnn_fusion_ho --epochs 100 --batch_size 8 --lr 1e-4 --num_workers 8
 ```
 
-### Video — RGB only
+### Multi-GPU (DDP)
+
+Use `train_par.py` with `torchrun` for multi-GPU training. Scale `--lr` linearly with the number of GPUs (1 GPU → `1e-4`, 4 GPUs → `4e-4`):
 
 ```bash
-python3 train.py \
-  --dataset ucf101 \
-  --model vnn_rgb_ho \
-  --epochs 50 \
-  --batch_size 8 \
-  --lr 1e-4 \
-  --num_workers 8
+NCCL_P2P_DISABLE=1 CUDA_VISIBLE_DEVICES=0,1,2,3 \
+torchrun --nproc_per_node=4 --master_port=29500 train_par.py \
+    --dataset ucf101 \
+    --model vnn_fusion_ho \
+    --epochs 100 \
+    --batch_size 8 \
+    --lr 4e-4 \
+    --num_workers 8 \
+    --run_name vnn_fusion_ucf101
 ```
 
-### Video — Two-stream fusion (RGB + optical flow)
+`train_par.py` accepts the same arguments as `train.py`.
+
+### I3D Two-Stream
+
+I3D two-stream training uses a dedicated script that handles DDP internally:
 
 ```bash
-python3 train.py \
-  --dataset ucf101 \
-  --model vnn_fusion_ho \
-  --epochs 50 \
-  --batch_size 8 \
-  --lr 1e-4 \
-  --num_workers 8
+# Single GPU
+CUDA_VISIBLE_DEVICES=0 python tools/train_i3d_two_stream.py \
+    --dataset ucf101 --run_name i3d_twostream_ucf101
+
+# 4-GPU DDP
+NCCL_P2P_DISABLE=1 CUDA_VISIBLE_DEVICES=0,1,2,3 \
+torchrun --nproc_per_node=4 --master_port=29502 tools/train_i3d_two_stream.py \
+    --dataset ucf101 --run_name i3d_twostream_ucf101 --lr 4e-4
+```
+
+### Dataset Splits
+
+UCF101 and HMDB51 have three official train/test splits. Use `--split` to select:
+
+```bash
+python3 train.py --dataset ucf101 --model vnn_fusion_ho --split 2 --run_name vnn_ucf101_split2 ...
 ```
 
 ---
 
 ## Evaluation
 
-To run evaluation only (no training) on a saved checkpoint:
+Run evaluation only (no training) on a saved checkpoint:
 
 ```bash
 python3 train.py \
@@ -175,6 +196,8 @@ python3 train.py \
 
 ## Models
 
+### VNN Models (via `train.py` / `train_par.py`)
+
 | Model name | Task | Description |
 |---|---|---|
 | `vnn_ortho` | CIFAR-10 | ResNet18-like backbone with Chebyshev T2(x) polynomial features and spectral normalization |
@@ -182,9 +205,23 @@ python3 train.py \
 | `resnet18` | CIFAR-10 | Standard ResNet18 baseline (adapted for 32×32 input) |
 | `vnn_rgb_ho` | Video | 4-block 3D backbone (quadratic + cubic) → fusion classifier head, RGB only; use `--disable_cubic` to ablate cubic |
 | `vnn_fusion_ho` | Video | Two-stream: RGB backbone + flow backbone → cross-stream product → fusion head; use `--disable_cubic` to ablate cubic |
-| `vnn_complex_ho` | Video | Deeper 7-block backbone, single RGB stream, includes classifier |
+| `vnn_additive_fusion_ho` | Video | Additive fusion ablation: `cat(rgb, flow)` only — no cross-stream product; isolates the rgb×flow interaction |
+| `vnn_legacy_fusion` | Video | Legacy arch matching original paper (no gates, no shortcuts, no cubic, additive fusion); use `--no_amp` |
+| `vnn_legacy_rgb` | Video | Legacy arch, RGB-only single-stream variant; use `--no_amp` |
 | `vnn_rgb` | Video | Legacy RGB-only model (older backbone) |
 | `vnn_fusion` | Video | Legacy two-stream fusion (older backbone) |
+
+### Baseline Models (via `train.py` / `train_par.py`)
+
+| Model name | Task | Description |
+|---|---|---|
+| `r3d` | Video | R3D-18: 3D ResNet with pure Conv3D spatiotemporal blocks |
+| `r2plus1d` | Video | R(2+1)D-18: factorized spatiotemporal convolutions (spatial 2D + temporal 1D) |
+| `resnet50_frame_avg` | Video | ResNet-50 applied per-frame; logits averaged across frames (no temporal modelling) |
+
+### I3D Two-Stream (via `tools/train_i3d_two_stream.py`)
+
+Inflated 3D Inception (I3D) with separate RGB and optical flow streams, late-fused by averaging logits. Auxiliary classifiers are used during training.
 
 ---
 
@@ -212,6 +249,8 @@ Input Flow: [B, 2, T, H, W]   ← computed on-the-fly for fusion models
                │
           [B, num_classes]
 ```
+
+For `vnn_additive_fusion_ho`, the cross-stream product is omitted and only `cat(rgb, flow)` is passed to the fusion head.
 
 ### 4-Block Backbone (`backbone_4block.py`)
 
@@ -292,7 +331,7 @@ Implementation:
 The a² term is an energy/magnitude detector (always ≥ 0); b modulates sign and scale.
 ```
 
-### 3rd-order General (available via `cubic_mode='general'`)
+### 3rd-order General (available via `--cubic_mode general`)
 
 ```
 h3(i,j,k) ≈ Σ_q a_q(i) · b_q(j) · c_q(k)
@@ -304,33 +343,37 @@ Implementation:
 More expressive than symmetric but uses 50% more parameters for the cubic path.
 ```
 
-The `--Q` flag sets the quadratic rank for all blocks (default: 2). Cubic rank (`Qc`) is fixed per-block in the architecture.
+The `--Q` flag sets the quadratic rank for legacy models (default: 2). In the 4-block backbone (`vnn_fusion_ho`, `vnn_rgb_ho`), Q is hardcoded at 4 per block and `--Q` has no effect.
 
 ---
 
 ## Training Arguments
 
+The following arguments apply to both `train.py` and `train_par.py` unless noted.
+
 | Argument | Default | Description |
 |---|---|---|
 | `--dataset` | required | `cifar10`, `ucf10`, `ucf11`, `ucf101`, `hmdb51` |
 | `--model` | required | Model name (see Models table) |
-| `--epochs` | 50 | Number of training epochs |
-| `--batch_size` | 32 | Batch size |
-| `--lr` | 0.01 | Base learning rate |
-| `--momentum` | 0.9 | SGD momentum (CIFAR only) |
-| `--weight_decay` | 5e-4 | L2 regularization strength |
-| `--label_smoothing` | 0.0 | Cross-entropy label smoothing factor |
-| `--Q` | 2 | Quadratic rank (number of CP components) |
-| `--disable_cubic` | False | Ablate cubic path in `vnn_rgb_ho` and `vnn_fusion_ho` (quadratic only) |
-| `--num_workers` | 0 | DataLoader worker processes |
-| `--device` | auto | `auto`, `cuda`, `mps`, `cpu` |
-| `--resume` | None | Path to checkpoint `.pth` to resume from |
 | `--run_name` | required | Run directory name (used for checkpoints and W&B display) |
+| `--epochs` | 100 | Number of training epochs |
+| `--batch_size` | 32 | Batch size per GPU |
+| `--lr` | 1e-4 | Base learning rate. Scale linearly with number of GPUs for DDP. |
+| `--weight_decay` | 1e-4 | L2 regularization strength |
+| `--label_smoothing` | 0.1 | Cross-entropy label smoothing factor |
+| `--split` | 1 | UCF101/HMDB51 official split number (1–3) |
+| `--Q` | 2 | Quadratic rank (CP components). Only affects legacy and LVN models. |
+| `--disable_cubic` | False | Remove cubic path from `vnn_rgb_ho` / `vnn_fusion_ho` (quadratic only) |
+| `--cubic_mode` | `symmetric` | Cubic factorization: `symmetric` (a²b) or `general` (abc) |
+| `--clip_len` | 16 | Frames per clip |
+| `--num_workers` | 16 | DataLoader worker processes |
+| `--device` | `auto` | `auto`, `cuda`, `mps`, `cpu` |
+| `--no_amp` | False | Disable AMP (float16). Required for legacy models without output clamping. |
+| `--seed` | None | Global random seed for reproducibility |
+| `--resume` | None | Path to checkpoint `.pth` to resume from |
 | `--test_only` | False | Skip training, run evaluation on the test set only |
-| `--wandb_mode` | online | `online`, `offline`, `disabled` |
-| `--wandb_project` | auto | W&B project name override |
-| `--wandb_entity` | None | W&B team or user override |
-| `--wandb_on_fail` | abort | `abort` or `offline` — behavior if W&B init fails |
+| `--no_wandb` | False | Disable W&B logging entirely |
+| `--wandb_group` | None | W&B group name for grouping multi-split or multi-seed runs |
 
 ---
 
@@ -342,35 +385,29 @@ W&B is the default logging backend. Login once per machine:
 wandb login
 ```
 
-Then run training normally — project and run names are auto-generated from model/dataset/timestamp.
+Then run training normally — the run name is set via `--run_name`.
 
-**Override run metadata:**
+**Disable W&B:**
 ```bash
-python3 train.py --dataset ucf101 --model vnn_fusion_ho --run_name experiment-1 \
-  --wandb_project my-project \
-  --wandb_entity my-team
+python3 train.py --dataset ucf101 --model vnn_fusion_ho --run_name exp --no_wandb
 ```
 
-**Offline mode** (server without internet access):
+**Group multi-split runs in W&B:**
 ```bash
-python3 train.py --dataset ucf101 --model vnn_fusion_ho --wandb_mode offline
-
-# Sync later:
-wandb sync runs/<run_name>/wandb/
+for split in 1 2 3; do
+  python3 train.py --dataset ucf101 --model vnn_fusion_ho \
+    --split $split --run_name vnn_ucf_split${split} \
+    --wandb_group vnn_ucf101_3split
+done
 ```
 
-**Disable W&B entirely:**
-```bash
-python3 train.py --dataset ucf101 --model vnn_fusion_ho --wandb_mode disabled
-```
-
-Logged metrics include: `train/loss`, `train/acc`, `val/loss`, `val/acc`, `weights/mean`, `weights/max`, `lr`.
+Logged metrics: `train/loss`, `train/acc`, `val/loss`, `val/acc`, `train/grad_norm`, `lr`.
 
 ---
 
 ## Resuming Training
 
-Checkpoints are saved to `runs/<run_name>/checkpoints/best_model.pth` (best validation accuracy).
+Checkpoints are saved to `runs/<run_name>/checkpoints/best_model.pth` (best validation accuracy) and `last_model.pth` (final epoch).
 
 ```bash
 python3 train.py \
@@ -380,7 +417,7 @@ python3 train.py \
   --resume runs/vnn_fusion_ho_ucf101_<timestamp>/checkpoints/best_model.pth
 ```
 
-The optimizer state is restored from the checkpoint. Training continues from where it left off.
+The optimizer and scheduler states are restored from the checkpoint. Training continues from where it left off.
 
 ---
 
@@ -392,7 +429,7 @@ Several mechanisms guard against the instability inherent in polynomial feature 
 - **Gate initialization:** Quadratic and cubic gates are initialized at `1e-4`, making the network behave like a pure linear model at the start of training. Gates grow gradually as training proceeds.
 - **Gradient clipping:** Gradient norm is clipped to 1.0 each step.
 - **Batch skipping:** Batches with non-finite loss or non-finite model outputs are skipped rather than propagating NaN gradients.
-- **Mixed precision:** AMP (float16) is used automatically on CUDA; the GradScaler handles underflow/overflow.
+- **Mixed precision:** AMP (float16) is used automatically on CUDA; the GradScaler handles underflow/overflow. Use `--no_amp` for legacy models that lack clamping.
 
 ---
 
@@ -400,33 +437,36 @@ Several mechanisms guard against the instability inherent in polynomial feature 
 
 ```
 .
-├── train.py                        # Unified training entrypoint (Trainer class)
+├── train.py                        # Single-GPU training entrypoint (Trainer class)
+├── train_par.py                    # Multi-GPU DDP training entrypoint (same args as train.py)
 ├── mypath.py                       # Dataset path resolver (env vars + defaults)
 ├── requirements.txt
-├── IMPROVEMENTS.md                 # Known issues and planned improvements
-├── REMOTE.md                       # Instructions for remote server testing
+│
+├── tools/
+│   ├── train_i3d_two_stream.py     # I3D two-stream trainer (DDP-capable, separate entrypoint)
+│   └── finished_scripts/           # Completed experiment scripts (archived for reference)
 │
 ├── network/
 │   ├── cifar/
 │   │   └── vnn_cifar.py            # Simple VNN for CIFAR-10
 │   ├── cifar_ortho/
 │   │   └── res_vnn_ortho.py        # ResNet18-like VNN with Chebyshev T2 + spectral norm
-│   ├── video/                      # Legacy video models (older backbones)
-│   │   ├── vnn_rgb_of_highQ.py
-│   │   └── vnn_fusion_highQ.py
+│   ├── video/                      # Video baselines and I3D
+│   │   ├── i3d.py                  # I3D + I3DTwoStream (with auxiliary classifiers)
+│   │   ├── established_models.py   # R3DNet, R2Plus1DNet, ResNet50FrameAvg
+│   │   ├── vnn_rgb_of_highQv2.py   # Legacy RGB backbone
+│   │   └── vnn_fusion_highQv2.py   # Legacy fusion head
 │   └── video_higher_order/         # Current primary video model family
-│       ├── volterra_ops.py         # Math primitives: quadratic, cubic_symmetric, cubic_general
-│       ├── blocks.py               # VolterraBlock3D, MultiKernelBlock3D
-│       ├── backbone_4block.py      # 4-block backbone → [B, 96, T/8, H/8, W/8]
-│       ├── backbone_7block.py      # Deeper 7-block variant
-│       └── fusion_head.py          # Single VolterraBlock3D + ClassifierHead
+│       ├── volterra_blocks.py      # Math primitives: quadratic, cubic_symmetric, cubic_general
+│       ├── vnn_4block.py           # VNNFusionHO, VNNAdditiveFusionHO, VNNRgbHO
+│       └── vnn_legacy.py           # VNNLegacyFusion, VNNLegacyRgb
 │
 ├── utils/
 │   ├── model_factory.py            # Instantiates all models by name string
-│   └── data_factory.py             # Dataloaders; wraps VideoDataset with FlowDatasetWrapper
+│   └── data_factory.py             # FlowDatasetWrapper; wraps VideoDataset with optical flow
 │
 ├── dataloaders/
-│   └── ...                         # VideoDataset, FlowDatasetWrapper, preprocessing
+│   └── dataset.py                  # VideoDataset with group-disjoint UCF101/HMDB51 splitting
 │
 ├── data/                           # Default dataset root (gitignored)
 └── runs/                           # Training outputs: checkpoints, W&B files (gitignored)
