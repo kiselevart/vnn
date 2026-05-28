@@ -32,13 +32,13 @@ B, T, H, W = 8, 16, 112, 112
 print(f"{'Model':<12}  {'Peak VRAM':>12}  {'Params':>10}")
 print("-" * 40)
 for name, build in MODELS:
-    torch.cuda.reset_peak_memory_stats(0)
+    torch.cuda.reset_peak_memory_stats(device)
     net = build().to(device).train()
     rgb  = torch.randn(B, 3, T, H, W, device=device)
     flow = torch.randn(B, 2, T, H, W, device=device)
     out  = net((rgb, flow))
     F.cross_entropy(out, torch.zeros(B, dtype=torch.long, device=device)).backward()
-    peak   = torch.cuda.max_memory_reserved(0) / 1024**2
+    peak   = torch.cuda.max_memory_reserved(device) / 1024**2
     params = sum(p.numel() for p in net.parameters()) / 1e6
     print(f"{name:<12}  {peak:>9,.0f} MB  {params:>8.1f} M")
     del net, rgb, flow, out

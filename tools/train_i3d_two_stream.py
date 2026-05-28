@@ -72,7 +72,7 @@ def parse_args():
     parser.add_argument("--no_amp",       action="store_true",
                         help="Disable AMP (float16).  Not usually needed for I3D.")
     parser.add_argument("--no_wandb",     action="store_true")
-    parser.add_argument("--wandb_group",  type=str,   default=None,
+    parser.add_argument("--wandb_group",  type=str,   required=True,
                         help="W&B run group for grouping multi-split runs.")
     parser.add_argument("--resume",       type=str,   default=None,
                         help="Path to checkpoint to resume from.")

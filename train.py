@@ -56,7 +56,7 @@ def parse_args():
                              "stability when using degrees >= 4.")
     parser.add_argument("--jitter_sigma", type=float, default=0.03,
                         help="Gaussian noise std for timeseries jitter augmentation.")
-    parser.add_argument("--wandb_group", type=str, default=None,
+    parser.add_argument("--wandb_group", type=str, required=True,
                         help="W&B group name to cluster related runs (e.g. a benchmark sweep).")
     parser.add_argument("--split", type=int, default=1, choices=[1, 2, 3],
                         help="UCF101/HMDB51 official dataset split number (1–3). Default: 1.")
@@ -569,9 +569,6 @@ if __name__ == "__main__":
         if args.resume:
             raise ValueError("--resume cannot be used together with --avg_splits.")
         base_run_name = args.run_name
-        # Group all 3 split runs together in W&B automatically.
-        if args.wandb_group is None:
-            args.wandb_group = base_run_name
         test_accs = []
         for s in [1, 2, 3]:
             args.ucf_split = s

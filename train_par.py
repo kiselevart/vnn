@@ -58,7 +58,7 @@ def parse_args():
     parser.add_argument("--poly_degrees", type=int, nargs="+", default=None)
     parser.add_argument("--alpha", type=float, default=1.0)
     parser.add_argument("--jitter_sigma", type=float, default=0.03)
-    parser.add_argument("--wandb_group", type=str, default=None)
+    parser.add_argument("--wandb_group", type=str, required=True)
     parser.add_argument("--laguerre_lr_mult", type=float, default=3.0)
     parser.add_argument("--warmup_epochs", type=int, default=5)
     parser.add_argument("--no_wandb", action="store_true")
