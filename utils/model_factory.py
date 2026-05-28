@@ -201,6 +201,7 @@ def get_model(args, device):
         elif args.model == "lvn_legendre_fusion":
             net = lvn_legendre_fusion(num_classes=args.num_classes, clip_len=clip_len,
                                       n_poly=getattr(args, "n_lag", None),
+                                      n_poly_s=getattr(args, "n_lag_s", None),
                                       alpha=getattr(args, "alpha", 1.0))
 
         elif args.model == "lvn_chebyshev_rgb":
@@ -211,6 +212,7 @@ def get_model(args, device):
         elif args.model == "lvn_chebyshev_fusion":
             net = lvn_chebyshev_fusion(num_classes=args.num_classes, clip_len=clip_len,
                                        n_poly=getattr(args, "n_lag", None),
+                                       n_poly_s=getattr(args, "n_lag_s", None),
                                        alpha=getattr(args, "alpha", 1.0))
 
         elif args.model == "lvn_hermite_rgb":
@@ -221,6 +223,7 @@ def get_model(args, device):
         elif args.model == "lvn_hermite_fusion":
             net = lvn_hermite_fusion(num_classes=args.num_classes, clip_len=clip_len,
                                      n_poly=getattr(args, "n_lag", None),
+                                     n_poly_s=getattr(args, "n_lag_s", None),
                                      alpha=getattr(args, "alpha", 1.0))
 
         elif args.model == "r2plus1d":

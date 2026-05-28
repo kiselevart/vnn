@@ -211,6 +211,24 @@ python3 train.py \
 | `vnn_rgb` | Video | Legacy RGB-only model (older backbone) |
 | `vnn_fusion` | Video | Legacy two-stream fusion (older backbone) |
 
+### Orthogonal Polynomial Basis Models (via `train.py` / `train_par.py`)
+
+Models that parameterise the temporal dimension of each Conv3d kernel as a linear combination of orthogonal basis functions. All share the same 4-block backbone topology as the Laguerre models and differ only in their temporal basis:
+
+| Model name | Temporal basis | Description |
+|---|---|---|
+| `lvn_laguerre_rgb` / `lvn_laguerre_fusion` | Laguerre | Exponential decay toward past frames; causal/asymmetric bias |
+| `lvn_legendre_rgb` / `lvn_legendre_fusion` | Legendre | Uniform temporal weighting; equal attention to all frames |
+| `lvn_chebyshev_rgb` / `lvn_chebyshev_fusion` | Chebyshev T₁ | Same uniform domain as Legendre; better approximation for same N |
+| `lvn_hermite_rgb` / `lvn_hermite_fusion` | Hermite | Gaussian envelope centred at mid-clip; symmetric past/future decay |
+
+Use `--n_lag N` to set the number of basis functions (temporal compression), `--alpha` to control scale (Laguerre/Hermite only). Omitting `--n_lag` uses full expressiveness (N = kernel T). The `_fusion` variants use two-stream RGB+flow with cross-stream product.
+
+```bash
+python3 train_par.py --dataset ucf101 --model lvn_legendre_fusion \
+    --n_lag 4 --run_name legendre_ucf101 --lr 4e-4
+```
+
 ### Baseline Models (via `train.py` / `train_par.py`)
 
 | Model name | Task | Description |

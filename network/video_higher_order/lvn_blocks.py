@@ -86,27 +86,22 @@ class LVNRgb(nn.Module):
 
 
 class LVNFusion(nn.Module):
-    """Two-stream fusion with standard Volterra cross-stream interaction."""
+    """Two-stream fusion: cat(rgb, flow) only — no explicit cross-stream product."""
 
     def __init__(self, num_classes: int, cubic_mode: str = 'symmetric',
                  use_cubic: bool = True, clip_len: int = 16):
         super().__init__()
         self.model_rgb = LVNBackbone(num_ch=3, cubic_mode=cubic_mode, use_cubic=use_cubic)
         self.model_of  = LVNBackbone(num_ch=2, cubic_mode=cubic_mode, use_cubic=use_cubic)
-        self.cross_bn  = nn.BatchNorm3d(96)
-        self.head      = LVNHead(num_classes=num_classes, num_ch=288,
+        self.head      = LVNHead(num_classes=num_classes, num_ch=192,
                                  cubic_mode=cubic_mode, use_cubic=use_cubic,
                                  clip_len=clip_len)
-        self.cross_abs_max = 0.0
 
     def forward(self, x):
         rgb, flow = x
         out_rgb = self.model_rgb(rgb)
         out_of  = self.model_of(flow)
-        cross   = torch.clamp(self.cross_bn(out_rgb * out_of), -50.0, 50.0)
-        with torch.no_grad():
-            self.cross_abs_max = cross.abs().max().item()
-        return self.head(torch.cat((out_rgb, out_of, cross), dim=1))
+        return self.head(torch.cat((out_rgb, out_of), dim=1))
 
     def get_1x_lr_params(self):
         skip = {id(p) for p in self.head.classifier.fc.parameters()}
