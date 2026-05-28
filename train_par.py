@@ -351,16 +351,23 @@ class Trainer:
             has_quad = hasattr(mod, 'conv_quad') or hasattr(mod, 'quad_convs')
             if not (has_lin and has_quad):
                 continue
-            if hasattr(mod, 'conv_lin') and mod.conv_lin.weight.grad is not None:
-                acc[f"bg/b{i}/lin"] = acc.get(f"bg/b{i}/lin", 0.0) + mod.conv_lin.weight.grad.norm().item()
+            def _grad_norm(conv):
+                p = getattr(conv, 'weight', None) or getattr(conv, 'coeff', None)
+                return p.grad.norm().item() if (p is not None and p.grad is not None) else None
+            if hasattr(mod, 'conv_lin'):
+                n = _grad_norm(mod.conv_lin)
+                if n is not None:
+                    acc[f"bg/b{i}/lin"] = acc.get(f"bg/b{i}/lin", 0.0) + n
             elif hasattr(mod, 'lin_convs'):
-                norms = [c.weight.grad.norm().item() for c in mod.lin_convs if c.weight.grad is not None]
+                norms = [n for c in mod.lin_convs if (n := _grad_norm(c)) is not None]
                 if norms:
                     acc[f"bg/b{i}/lin"] = acc.get(f"bg/b{i}/lin", 0.0) + sum(norms) / len(norms)
-            if hasattr(mod, 'conv_quad') and mod.conv_quad.weight.grad is not None:
-                acc[f"bg/b{i}/quad"] = acc.get(f"bg/b{i}/quad", 0.0) + mod.conv_quad.weight.grad.norm().item()
+            if hasattr(mod, 'conv_quad'):
+                n = _grad_norm(mod.conv_quad)
+                if n is not None:
+                    acc[f"bg/b{i}/quad"] = acc.get(f"bg/b{i}/quad", 0.0) + n
             elif hasattr(mod, 'quad_convs'):
-                norms = [c.weight.grad.norm().item() for c in mod.quad_convs if c.weight.grad is not None]
+                norms = [n for c in mod.quad_convs if (n := _grad_norm(c)) is not None]
                 if norms:
                     acc[f"bg/b{i}/quad"] = acc.get(f"bg/b{i}/quad", 0.0) + sum(norms) / len(norms)
             i += 1
