@@ -11,6 +11,14 @@ sys.path.insert(0, ".")
 from network.video_higher_order.vnn_4block import VNNFusionHO, VNNAdditiveFusionHO
 from network.video_higher_order.vnn_legacy import VNNLegacyFusion
 from network.video.established_models import R2Plus1DNet, R3DNet, ResNet50FrameAvg
+from network.video.i3d import I3DTwoStream
+from network.video_higher_order import (
+    lvn_laguerre_fusion,
+    lvn_laguerre_full_fusion,
+    lvn_legendre_fusion,
+    lvn_chebyshev_fusion,
+    lvn_hermite_fusion,
+)
 
 try:
     from fvcore.nn import FlopCountAnalysis
@@ -125,6 +133,20 @@ for label, cls, fn in [
     m = cls(num_classes=NUM_CLASSES)
     g = fn(m)
     rows.append(("Baselines", label, g, count_params(m)))
+
+m = I3DTwoStream(num_classes=NUM_CLASSES, clip_len=T)
+rows.append(("Baselines", "I3D Two-Stream (RGB+Flow)", gflops_fusion(m), count_params(m)))
+
+# ── LVN / Ortho basis models ─────────────────────────────────────────────────
+for label, build in [
+    ("TLVN  (Laguerre temporal, n_lag=4)",          lambda: lvn_laguerre_fusion(NUM_CLASSES, clip_len=T, n_lag=4)),
+    ("LVN   (Laguerre full T+H+W, n_t=4 n_s=2)",   lambda: lvn_laguerre_full_fusion(NUM_CLASSES, clip_len=T, n_lag_t=4, n_lag_s=2)),
+    ("Legendre full (n_t=4 n_s=2)",                 lambda: lvn_legendre_fusion(NUM_CLASSES, clip_len=T, n_poly=4, n_poly_s=2)),
+    ("Chebyshev full (n_t=4 n_s=2)",                lambda: lvn_chebyshev_fusion(NUM_CLASSES, clip_len=T, n_poly=4, n_poly_s=2)),
+    ("Hermite   full (n_t=4 n_s=2)",                lambda: lvn_hermite_fusion(NUM_CLASSES, clip_len=T, n_poly=4, n_poly_s=2)),
+]:
+    m = build()
+    rows.append(("LVN/Ortho", label, gflops_fusion(m), count_params(m)))
 
 # ── Print table ──────────────────────────────────────────────────────────────
 print()
