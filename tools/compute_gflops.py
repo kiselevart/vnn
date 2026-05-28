@@ -10,7 +10,7 @@ sys.path.insert(0, ".")
 
 from network.video_higher_order.vnn_4block import VNNFusionHO, VNNAdditiveFusionHO
 from network.video_higher_order.vnn_legacy import VNNLegacyFusion
-from network.video.established_models import R2Plus1DNet, R3DNet, ResNet50FrameAvg
+from network.video.established_models import R2Plus1DNet, R3DNet, ResNet50FrameAvg, SmallR3D, SmallR2Plus1D
 from network.video.i3d import I3DTwoStream
 from network.video_higher_order import (
     lvn_laguerre_fusion,
@@ -129,6 +129,8 @@ for label, cls, fn in [
     ("R(2+1)D-18",       R2Plus1DNet,      gflops_single),
     ("R3D-18",           R3DNet,           gflops_single),
     ("ResNet50FrameAvg", ResNet50FrameAvg, gflops_single),
+    ("SmallR3D",         SmallR3D,         gflops_single),
+    ("SmallR2Plus1D",    SmallR2Plus1D,    gflops_single),
 ]:
     m = cls(num_classes=NUM_CLASSES)
     g = fn(m)

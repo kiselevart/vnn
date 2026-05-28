@@ -473,9 +473,9 @@ class LaguerreConv3d_Full(nn.Module):
         if isinstance(kernel_size, int):
             kernel_size = (kernel_size,) * 3
         T, H, W = kernel_size
-        N_T = N_lag_T if N_lag_T is not None else T
-        N_H = N_lag_H if N_lag_H is not None else H
-        N_W = N_lag_W if N_lag_W is not None else W
+        N_T = min(N_lag_T, T) if N_lag_T is not None else T
+        N_H = min(N_lag_H, H) if N_lag_H is not None else H
+        N_W = min(N_lag_W, W) if N_lag_W is not None else W
 
         self.in_ch  = in_ch
         self.out_ch = out_ch

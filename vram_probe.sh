@@ -27,6 +27,7 @@ MODELS = [
 ]
 
 device = torch.device("cuda:0")
+torch.cuda.set_device(device)   # initialise CUDA context before memory stat calls
 B, T, H, W = 8, 16, 112, 112
 
 print(f"{'Model':<12}  {'Peak VRAM':>12}  {'Params':>10}")

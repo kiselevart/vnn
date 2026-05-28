@@ -10,7 +10,7 @@ from network.video import (
     vnn_rgb_of_highQv2,
 )
 from network.video import vnn_fusion_highQ, vnn_rgb_of_highQ
-from network.video.established_models import R2Plus1DNet, R3DNet, ResNet50FrameAvg
+from network.video.established_models import R2Plus1DNet, R3DNet, ResNet50FrameAvg, SmallR3D, SmallR2Plus1D
 
 # Higher-order video models
 from network.video_higher_order import (
@@ -231,6 +231,12 @@ def get_model(args, device):
 
         elif args.model == "r3d":
             net = R3DNet(num_classes=args.num_classes)
+
+        elif args.model == "small_r3d":
+            net = SmallR3D(num_classes=args.num_classes)
+
+        elif args.model == "small_r2plus1d":
+            net = SmallR2Plus1D(num_classes=args.num_classes)
 
         elif args.model == "resnet50_frame_avg":
             net = ResNet50FrameAvg(num_classes=args.num_classes)
