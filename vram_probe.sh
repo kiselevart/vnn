@@ -19,7 +19,7 @@ from network.video_higher_order import (
     lvn_hermite_fusion,
 )
 from network.video_higher_order.vnn_4block import VNNFusionHO, VNNAdditiveFusionHO
-from network.video.established_models import R3DNet, SmallR3D, SmallR2Plus1D
+from network.video.established_models import R3DNet, R2Plus1DNet, ResNet50FrameAvg, SmallR3D, SmallR2Plus1D
 
 TWO_STREAM = True
 ONE_STREAM = False
@@ -28,15 +28,20 @@ MODELS = [
     # --- Diving48 ablation models ---
     ("VNN/fusion",    TWO_STREAM, lambda: VNNFusionHO(num_classes=48, use_cubic=False)),
     ("VNN/additive",  TWO_STREAM, lambda: VNNAdditiveFusionHO(num_classes=48, use_cubic=False)),
-    ("SmallR3D",      ONE_STREAM, lambda: SmallR3D(num_classes=48)),
-    ("R3D-18",        ONE_STREAM, lambda: R3DNet(num_classes=48)),
+    ("SmallR3D-48",   ONE_STREAM, lambda: SmallR3D(num_classes=48)),
+    ("R3D-18-48",     ONE_STREAM, lambda: R3DNet(num_classes=48)),
     # --- LVN/ortho models (UCF101/HMDB51) ---
     ("TLVN",          TWO_STREAM, lambda: lvn_laguerre_fusion(num_classes=101, clip_len=16, n_lag=4)),
     ("LVN",           TWO_STREAM, lambda: lvn_laguerre_full_fusion(num_classes=101, clip_len=16, n_lag_t=4, n_lag_s=2)),
     ("Legendre",      TWO_STREAM, lambda: lvn_legendre_fusion(num_classes=101, clip_len=16, n_poly=4, n_poly_s=2)),
     ("Chebyshev",     TWO_STREAM, lambda: lvn_chebyshev_fusion(num_classes=101, clip_len=16, n_poly=4, n_poly_s=2)),
     ("Hermite",       TWO_STREAM, lambda: lvn_hermite_fusion(num_classes=101, clip_len=16, n_poly=4, n_poly_s=2)),
+    ("SmallR3D",      ONE_STREAM, lambda: SmallR3D(num_classes=101)),
     ("SmallR2+1D",    ONE_STREAM, lambda: SmallR2Plus1D(num_classes=101)),
+    # --- Large baselines (missing_baselines.sh: UCF101/HMDB51 multi-split) ---
+    ("R3D-18",        ONE_STREAM, lambda: R3DNet(num_classes=101)),
+    ("R(2+1)D-18",    ONE_STREAM, lambda: R2Plus1DNet(num_classes=101)),
+    ("ResNet50-avg",  ONE_STREAM, lambda: ResNet50FrameAvg(num_classes=101)),
 ]
 
 device = torch.device("cuda:0")
