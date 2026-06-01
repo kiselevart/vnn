@@ -222,7 +222,7 @@ Models that parameterise the temporal dimension of each Conv3d kernel as a linea
 | `lvn_chebyshev_rgb` / `lvn_chebyshev_fusion` | Chebyshev T₁ | Same uniform domain as Legendre; better approximation for same N |
 | `lvn_hermite_rgb` / `lvn_hermite_fusion` | Hermite | Gaussian envelope centred at mid-clip; symmetric past/future decay |
 
-Use `--n_lag N` to set the number of basis functions (temporal compression), `--alpha` to control scale (Laguerre/Hermite only). Omitting `--n_lag` uses full expressiveness (N = kernel T). The `_fusion` variants use two-stream RGB+flow with cross-stream product.
+Use `--n_lag N` to set the number of basis functions (temporal compression), `--alpha` to control scale (Laguerre/Hermite only). Omitting `--n_lag` uses full expressiveness (N = kernel T). The LVN/TLVN/orthogonal `_fusion` variants use additive two-stream fusion (`cat(rgb, flow)`) without the explicit cross-stream product.
 
 ```bash
 python3 train_par.py --dataset ucf101 --model lvn_legendre_fusion \
@@ -391,7 +391,7 @@ The following arguments apply to both `train.py` and `train_par.py` unless noted
 | `--resume` | None | Path to checkpoint `.pth` to resume from |
 | `--test_only` | False | Skip training, run evaluation on the test set only |
 | `--no_wandb` | False | Disable W&B logging entirely |
-| `--wandb_group` | None | W&B group name for grouping multi-split or multi-seed runs |
+| `--wandb_group` | required | W&B group name for grouping multi-split or multi-seed runs |
 
 ---
 
