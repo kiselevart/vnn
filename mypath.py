@@ -1,6 +1,6 @@
 import os
 
-_KNOWN_DATASETS = {"ucf101", "hmdb51", "ucf10", "ucf11", "ssv2", "cifar10"}
+_KNOWN_DATASETS = {"ucf101", "hmdb51", "ucf10", "ucf11", "ssv2", "cifar10", "diving48"}
 
 
 class Path:

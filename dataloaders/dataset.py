@@ -294,7 +294,9 @@ class VideoDataset(Dataset):
             test_list  = os.path.join(self.root_dir, 'ucfTrainTestlist', f'testlist0{self.ucf_split}.txt')
             hmdb_splits_dir = os.path.join(self.root_dir, 'testTrainMulti_7030_splits')
 
-            if self._detect_ssv2():
+            if self._detect_diving48():
+                self._preprocess_diving48()
+            elif self._detect_ssv2():
                 self._preprocess_ssv2()
             elif os.path.exists(train_list) and os.path.exists(test_list):
                 self._preprocess_official_splits(train_list, test_list)
@@ -566,6 +568,85 @@ class VideoDataset(Dataset):
                         self._compute_and_save_flow(dst)
                 else:
                     self.process_video(vid, cls, save_dir)
+
+    def _detect_diving48(self):
+        return (
+            os.path.exists(os.path.join(self.root_dir, 'diving48_v2_train.json')) and
+            os.path.exists(os.path.join(self.root_dir, 'diving48_v2_test.json'))
+        )
+
+    def _find_diving48_rgb_dir(self, vid_name):
+        """Return the source RGB frame directory for a Diving48 clip, or None."""
+        # Common layouts after extracting the official archives:
+        #   <root>/rgb/<vid_name>/      (rgb archive extracted as rgb/)
+        #   <root>/frames/<vid_name>/   (alternative name)
+        #   <root>/<vid_name>/          (flat layout)
+        for sub in ('rgb', 'frames', ''):
+            candidate = os.path.join(self.root_dir, sub, vid_name) if sub else \
+                        os.path.join(self.root_dir, vid_name)
+            if os.path.isdir(candidate) and any(f.endswith('.jpg') for f in os.listdir(candidate)):
+                return candidate
+        return None
+
+    def _preprocess_diving48(self):
+        """Preprocess Diving48 using pre-extracted RGB frames.
+
+        Ignores the dataset's TVL1 optical flow to keep flow statistics
+        identical to UCF101/HMDB51 (both use Farneback with 0.05 scale).
+        Flow is recomputed from the resized RGB frames using calculate_video_flow.
+
+        Expected directory layout after extracting the official archives:
+            data/diving48/
+              diving48_v2_train.json
+              diving48_v2_test.json
+              rgb/<vid_name>/<frame>.jpg   (pre-extracted RGB frames)
+        """
+        import json
+        rng = np.random.RandomState(42)
+
+        with open(os.path.join(self.root_dir, 'diving48_v2_train.json')) as f:
+            train_ann = json.load(f)
+        with open(os.path.join(self.root_dir, 'diving48_v2_test.json')) as f:
+            test_ann = json.load(f)
+
+        # Carve 15% of each class for val (no actor groups in diving)
+        label_to_entries = defaultdict(list)
+        for entry in train_ann:
+            label_to_entries[entry['label']].append(entry)
+
+        final_train, final_val = [], []
+        for label_id in sorted(label_to_entries):
+            entries = list(label_to_entries[label_id])
+            rng.shuffle(entries)
+            n_val = max(1, int(len(entries) * 0.15))
+            final_val.extend(entries[:n_val])
+            final_train.extend(entries[n_val:])
+
+        missing = 0
+        for split_name, entries in [('train', final_train), ('val', final_val), ('test', list(test_ann))]:
+            print(f'  {split_name}: {len(entries)} clips')
+            for entry in tqdm(entries, desc=f'Processing {split_name}'):
+                # Zero-padded integer label → sorted() order matches integer class index
+                label_folder = f"{entry['label']:02d}"
+                vid_name = entry['vid_name']
+
+                src_dir = self._find_diving48_rgb_dir(vid_name)
+                if src_dir is None:
+                    missing += 1
+                    continue
+
+                dst_dir = os.path.join(self.output_dir, split_name, label_folder, vid_name)
+                if os.path.exists(dst_dir) and any(f.endswith('.jpg') for f in os.listdir(dst_dir)):
+                    # Already processed; ensure flow exists
+                    if not os.path.exists(os.path.join(dst_dir, 'flow.npy')):
+                        self._compute_and_save_flow(dst_dir)
+                    continue
+
+                self._resize_frames_to_dir(src_dir, dst_dir)
+                self._compute_and_save_flow(dst_dir)
+
+        if missing:
+            print(f'  [WARN] {missing} clips had no RGB frames found — check data/diving48/rgb/<vid_name>/')
 
     def _detect_ssv2(self):
         return os.path.exists(os.path.join(self.root_dir, 'labels', 'labels.json'))

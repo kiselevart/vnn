@@ -78,8 +78,8 @@ def parse_args():
 
     args = parser.parse_args()
 
-    _video_ds   = {"ucf10", "ucf11", "ucf101", "hmdb51", "ssv2"}
-    _ds_classes = {"cifar10": 10, "ucf11": 11, "ucf101": 101, "hmdb51": 51, "ucf10": 10, "ssv2": 174, "mnist": 10}
+    _video_ds   = {"ucf10", "ucf11", "ucf101", "hmdb51", "ssv2", "diving48"}
+    _ds_classes = {"cifar10": 10, "ucf11": 11, "ucf101": 101, "hmdb51": 51, "ucf10": 10, "ssv2": 174, "mnist": 10, "diving48": 48}
     if args.task is None:
         if args.dataset == "cifar10":
             args.task = "cifar"
