@@ -27,43 +27,54 @@ class Backbone4Block(nn.Module):
         Block 3: Single kernel → Quadratic + Cubic (no pool)
         Block 4: Single kernel → Quadratic + Cubic → Pool
 
-    Outputs feature maps [B, 96, T/8, H/8, W/8].
+    Outputs feature maps [B, ch_per_kernel*12, T/8, H/8, W/8].
+    Default ch_per_kernel=8 → 96 output channels.
 
     Args:
         num_ch: Input channels (3 for RGB, 2 for optical flow).
         cubic_mode: 'symmetric' or 'general' cubic factorization.
+        Q: Quadratic rank for all blocks (default 4).
+        ch_per_kernel: Channels per kernel in block 1; sets the width of all
+            subsequent blocks as [3×, 4×, 8×, 12×] multiples (default 8).
     """
 
-    def __init__(self, num_ch=3, cubic_mode='symmetric', use_cubic=True):
+    def __init__(self, num_ch=3, cubic_mode='symmetric', use_cubic=True, Q=4, ch_per_kernel=8):
         super().__init__()
+
+        ch1 = ch_per_kernel * 3   # block1 output (3 kernels)
+        ch2 = ch_per_kernel * 4   # block2 output
+        ch3 = ch_per_kernel * 8   # block3 output
+        ch4 = ch_per_kernel * 12  # block4 output
 
         # Block 1: Multi-kernel, quadratic only
         self.block1 = MultiKernelBlock3D(
-            num_ch, ch_per_kernel=8,
+            num_ch, ch_per_kernel=ch_per_kernel,
             kernels=[(5, 5, 5), (3, 3, 3), (1, 1, 1)],
-            Q=4, stride=2,
+            Q=Q, stride=2,
         )
 
         # Block 2: Quadratic only
-        self.block2 = VolterraBlock3D(24, 32, Q=4, stride=2, use_shortcut=True)
+        self.block2 = VolterraBlock3D(ch1, ch2, Q=Q, stride=2, use_shortcut=True)
 
         # Boost Q to compensate for removed cubic path when use_cubic=False
         cubic_mult = 3 if cubic_mode == 'general' else 2
-        q_eff = (4 + cubic_mult * 2 // 2) if not use_cubic else 4
+        q_eff = (Q + cubic_mult * 2 // 2) if not use_cubic else Q
 
         # Block 3: Quadratic + Cubic (no pool)
         self.block3 = VolterraBlock3D(
-            32, 64, Q=q_eff, Qc=2,
+            ch2, ch3, Q=q_eff, Qc=2,
             use_cubic=use_cubic, cubic_mode=cubic_mode,
             use_shortcut=True,
         )
 
         # Block 4: Quadratic + Cubic
         self.block4 = VolterraBlock3D(
-            64, 96, Q=q_eff, Qc=2, stride=2,
+            ch3, ch4, Q=q_eff, Qc=2, stride=2,
             use_cubic=use_cubic, cubic_mode=cubic_mode,
             use_shortcut=True,
         )
+
+        self.out_ch = ch4
 
     def forward(self, x):
         x = self.block1(x)
@@ -92,7 +103,7 @@ class FusionHead(nn.Module):
     """
 
     def __init__(self, num_classes, num_ch=3, cubic_mode='symmetric', use_cubic=True, Q=2, Qc=2,
-                 clip_len=16):
+                 clip_len=16, out_ch=256):
         super().__init__()
 
         # Boost Q to compensate for removed cubic path when use_cubic=False
@@ -100,11 +111,11 @@ class FusionHead(nn.Module):
         q_eff = (Q + cubic_mult * Qc // 2) if not use_cubic else Q
 
         self.block1 = VolterraBlock3D(
-            num_ch, 256, Q=q_eff, Qc=Qc, stride=2,
+            num_ch, out_ch, Q=q_eff, Qc=Qc, stride=2,
             use_cubic=use_cubic, cubic_mode=cubic_mode,
             use_shortcut=True, gate_quadratic=True,
         )
-        fc_features = 256 * (clip_len // 16) * 7 * 7
+        fc_features = out_ch * (clip_len // 16) * 7 * 7
         self.classifier = ClassifierHead(fc_features, num_classes)
 
     def forward(self, x):
@@ -141,7 +152,7 @@ class VNNRgbHO(nn.Module):
                  clip_len=16):
         super().__init__()
         self.backbone = Backbone4Block(num_ch=3, cubic_mode=cubic_mode, use_cubic=use_cubic)
-        self.head = FusionHead(num_classes=num_classes, num_ch=96,
+        self.head = FusionHead(num_classes=num_classes, num_ch=self.backbone.out_ch,
                                cubic_mode=cubic_mode, use_cubic=use_cubic, Q=Q, Qc=Qc,
                                clip_len=clip_len)
 
@@ -177,7 +188,7 @@ class VNNFusionHO(nn.Module):
         super().__init__()
         self.model_rgb = Backbone4Block(num_ch=3, cubic_mode=cubic_mode, use_cubic=use_cubic)
         self.model_of = Backbone4Block(num_ch=2, cubic_mode=cubic_mode, use_cubic=use_cubic)
-        stream_ch = 96  # Backbone4Block output channels
+        stream_ch = self.model_rgb.out_ch
         # BN + clamp on the cross-stream product prevents float16 overflow and
         # quadratic gradient amplification through the rgb*flow interaction term.
         self.cross_bn = nn.BatchNorm3d(stream_ch)
@@ -225,10 +236,47 @@ class VNNAdditiveFusionHO(nn.Module):
         super().__init__()
         self.model_rgb  = Backbone4Block(num_ch=3, cubic_mode=cubic_mode, use_cubic=use_cubic)
         self.model_of   = Backbone4Block(num_ch=2, cubic_mode=cubic_mode, use_cubic=use_cubic)
-        stream_ch = 96
+        stream_ch = self.model_rgb.out_ch
         self.model_fuse = FusionHead(num_classes=num_classes, num_ch=stream_ch * 2,
                                      cubic_mode=cubic_mode, use_cubic=use_cubic,
                                      clip_len=clip_len)
+
+    def forward(self, x):
+        rgb, flow = x
+        out_rgb = self.model_rgb(rgb)
+        out_of  = self.model_of(flow)
+        return self.model_fuse(torch.cat((out_rgb, out_of), dim=1))
+
+    def get_1x_lr_params(self):
+        skip = {id(p) for p in self.model_fuse.classifier.fc.parameters()}
+        for p in self.parameters():
+            if p.requires_grad and id(p) not in skip:
+                yield p
+
+    def get_10x_lr_params(self):
+        for p in self.model_fuse.classifier.fc.parameters():
+            if p.requires_grad:
+                yield p
+
+
+class VNNSmallAdditiveFusion(nn.Module):
+    """Parameter-matched (~6M) two-stream additive VNN for ablation vs ortho models.
+
+    Uses half-width backbone (ch_per_kernel=4 → 48ch output per stream) and Q=1
+    with no cubic path. Parameter count ~6.7M — comparable to LVN/ortho models
+    (6.2M) and SmallR3D (5.8M) for a fair architecture comparison.
+
+    Fusion: cat(rgb, flow) → 96ch → FusionHead(out_ch=256, Q=1, no cubic).
+    """
+
+    def __init__(self, num_classes, clip_len=16):
+        super().__init__()
+        self.model_rgb = Backbone4Block(num_ch=3, use_cubic=False, Q=1, ch_per_kernel=4)
+        self.model_of  = Backbone4Block(num_ch=2, use_cubic=False, Q=1, ch_per_kernel=4)
+        stream_ch = self.model_rgb.out_ch  # 48
+        self.model_fuse = FusionHead(num_classes=num_classes, num_ch=stream_ch * 2,
+                                     use_cubic=False, Q=1, Qc=2,
+                                     clip_len=clip_len, out_ch=256)
 
     def forward(self, x):
         rgb, flow = x

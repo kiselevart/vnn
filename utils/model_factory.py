@@ -14,7 +14,7 @@ from network.video.established_models import R2Plus1DNet, R3DNet, ResNet50FrameA
 
 # Higher-order video models
 from network.video_higher_order import (
-    VNNRgbHO, VNNFusionHO, VNNAdditiveFusionHO,
+    VNNRgbHO, VNNFusionHO, VNNAdditiveFusionHO, VNNSmallAdditiveFusion,
     VNNLegacyFusion, VNNLegacyRgb,
     lvn_rgb_signed, lvn_fusion_signed,
     lvn_laguerre_rgb, lvn_laguerre_fusion,
@@ -139,6 +139,16 @@ def get_model(args, device):
             # Legacy arch: no gates, no shortcuts, no cubic, no clamping, additive fusion.
             # Use for ablations comparing against original paper. --Q controls backbone rank.
             net = VNNLegacyFusion(num_classes=args.num_classes, Q=args.Q, clip_len=clip_len)
+
+        elif args.model == "vnn_small_legacy_fusion":
+            # ~6.7M param legacy VNN: Q=1 backbone + Q_fusion=1 head.
+            # Parameter-matched to LVN/ortho models (~6.2M) for fair comparison.
+            net = VNNLegacyFusion(num_classes=args.num_classes, Q=1, Q_fusion=1, clip_len=clip_len)
+
+        elif args.model == "vnn_small_additive_fusion":
+            # ~6.7M param modern additive VNN: half-width backbone (ch_per_kernel=4),
+            # Q=1, no cubic. Parameter-matched to LVN/ortho models for fair comparison.
+            net = VNNSmallAdditiveFusion(num_classes=args.num_classes, clip_len=clip_len)
 
         elif args.model == "vnn_legacy_rgb":
             # Legacy arch: RGB-only single stream variant.
