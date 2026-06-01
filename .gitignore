@@ -58,3 +58,5 @@ runs/
 VNN_ORIGINAL/
 
 CLAUDE.md
+
+wandb_data/*.parquet
