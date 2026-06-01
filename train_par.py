@@ -352,7 +352,8 @@ class Trainer:
             if not (has_lin and has_quad):
                 continue
             def _grad_norm(conv):
-                p = getattr(conv, 'weight', None) or getattr(conv, 'coeff', None)
+                w = getattr(conv, 'weight', None)
+                p = w if w is not None else getattr(conv, 'coeff', None)
                 return p.grad.norm().item() if (p is not None and p.grad is not None) else None
             if hasattr(mod, 'conv_lin'):
                 n = _grad_norm(mod.conv_lin)
