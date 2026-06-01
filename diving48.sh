@@ -37,7 +37,6 @@ run() {
         --batch_size 8 \
         --lr 4e-4 \
         --seed $SEED \
-        --no_amp \
         --disable_cubic \
         --wandb_group "$GROUP" \
         --run_name "$run_name" \

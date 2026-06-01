@@ -1,5 +1,6 @@
 #!/bin/bash
-# Measure peak VRAM per GPU for each LVN/TLVN/ortho fusion model.
+# Measure peak VRAM per GPU for all ablation models (BS=8, float32, forward+backward).
+# In 4-GPU DDP each GPU sees BS=2; this script uses BS=8 on one GPU to be conservative.
 # Usage:
 #   cd vnn
 #   bash vram_probe.sh [GPU_ID]   # default GPU 0
@@ -17,46 +18,55 @@ from network.video_higher_order import (
     lvn_chebyshev_fusion,
     lvn_hermite_fusion,
 )
+from network.video_higher_order.vnn_4block import VNNFusionHO, VNNAdditiveFusionHO
+from network.video.established_models import R3DNet, SmallR3D, SmallR2Plus1D
 
-from network.video.established_models import R2Plus1DNet, R3DNet, ResNet50FrameAvg, SmallR3D, SmallR2Plus1D
+TWO_STREAM = True
+ONE_STREAM = False
 
 MODELS = [
-    ("SmallR3D",  lambda: SmallR3D(num_classes=101)),
-    ("SmallR2+1D",lambda: SmallR2Plus1D(num_classes=101)),
-    ("TLVN",      lambda: lvn_laguerre_fusion(num_classes=101, clip_len=16, n_lag=4)),
-    ("LVN",       lambda: lvn_laguerre_full_fusion(num_classes=101, clip_len=16, n_lag_t=4, n_lag_s=2)),
-    ("Legendre",  lambda: lvn_legendre_fusion(num_classes=101, clip_len=16, n_poly=4, n_poly_s=2)),
-    ("Chebyshev", lambda: lvn_chebyshev_fusion(num_classes=101, clip_len=16, n_poly=4, n_poly_s=2)),
-    ("Hermite",   lambda: lvn_hermite_fusion(num_classes=101, clip_len=16, n_poly=4, n_poly_s=2)),
+    # --- Diving48 ablation models ---
+    ("VNN/fusion",    TWO_STREAM, lambda: VNNFusionHO(num_classes=48, use_cubic=False)),
+    ("VNN/additive",  TWO_STREAM, lambda: VNNAdditiveFusionHO(num_classes=48, use_cubic=False)),
+    ("SmallR3D",      ONE_STREAM, lambda: SmallR3D(num_classes=48)),
+    ("R3D-18",        ONE_STREAM, lambda: R3DNet(num_classes=48)),
+    # --- LVN/ortho models (UCF101/HMDB51) ---
+    ("TLVN",          TWO_STREAM, lambda: lvn_laguerre_fusion(num_classes=101, clip_len=16, n_lag=4)),
+    ("LVN",           TWO_STREAM, lambda: lvn_laguerre_full_fusion(num_classes=101, clip_len=16, n_lag_t=4, n_lag_s=2)),
+    ("Legendre",      TWO_STREAM, lambda: lvn_legendre_fusion(num_classes=101, clip_len=16, n_poly=4, n_poly_s=2)),
+    ("Chebyshev",     TWO_STREAM, lambda: lvn_chebyshev_fusion(num_classes=101, clip_len=16, n_poly=4, n_poly_s=2)),
+    ("Hermite",       TWO_STREAM, lambda: lvn_hermite_fusion(num_classes=101, clip_len=16, n_poly=4, n_poly_s=2)),
+    ("SmallR2+1D",    ONE_STREAM, lambda: SmallR2Plus1D(num_classes=101)),
 ]
 
-
 device = torch.device("cuda:0")
-torch.cuda.set_device(device)   # initialise CUDA context before memory stat calls
+torch.cuda.set_device(device)
 B, T, H, W = 8, 16, 112, 112
 
-print(f"{'Model':<12}  {'Peak VRAM':>12}  {'Params':>10}")
-print("-" * 40)
-for name, build in MODELS:
+print(f"{'Model':<14}  {'Peak VRAM (BS=8)':>16}  {'Per-GPU DDP (BS=2)':>18}  {'Params':>10}")
+print("-" * 68)
+for name, two_stream, build in MODELS:
     torch.cuda.reset_peak_memory_stats(device)
 
     net = build().to(device).train()
     rgb = torch.randn(B, 3, T, H, W, device=device)
 
-    if "R3D" in name or "R2+1D" in name:
-        out = net(rgb)
-    else:
+    if two_stream:
         flow = torch.randn(B, 2, T, H, W, device=device)
         out = net((rgb, flow))
+    else:
+        out = net(rgb)
 
     F.cross_entropy(out, torch.zeros(B, dtype=torch.long, device=device)).backward()
 
-    peak   = torch.cuda.max_memory_reserved(device) / 1024**2
-    params = sum(p.numel() for p in net.parameters()) / 1e6
-    print(f"{name:<12}  {peak:>9,.0f} MB  {params:>8.1f} M")
+    peak_mb = torch.cuda.max_memory_reserved(device) / 1024**2
+    params  = sum(p.numel() for p in net.parameters()) / 1e6
+    # DDP splits batch across GPUs; activations scale roughly linearly with BS
+    ddp_est = peak_mb / 4
+    print(f"{name:<14}  {peak_mb:>13,.0f} MB  {ddp_est:>15,.0f} MB  {params:>8.1f} M")
 
     del net, rgb, out
-    if "flow" in dir():
+    if two_stream:
         del flow
     torch.cuda.empty_cache()
 PYEOF
