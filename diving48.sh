@@ -4,12 +4,13 @@
 # Data setup (do once before running):
 #   1. Download Diving48 v2 from http://www.svcl.ucsd.edu/projects/resound/dataset.html
 #      Extract so that vnn/data/diving48/ contains:
-#        diving48_v2_train.json
-#        diving48_v2_test.json
+#        diving48_v2_train.json or Diving48_V2_train.json
+#        diving48_v2_test.json or Diving48_V2_test.json
+#        rgb/<vid_name>.mp4           (official RGB clips), or
 #        rgb/<vid_name>/<frame>.jpg   (pre-extracted RGB frames)
 #      The optical flow archive is NOT needed — flow is recomputed from RGB
 #      using the same Farneback method as UCF101/HMDB51 for consistency.
-#   2. Frame resizing + flow computation runs automatically on first launch (~30-60 min).
+#   2. Frame extraction/resizing + flow computation runs automatically on first launch.
 #
 # Runs: VNN multiplicative, VNN additive, SmallR3D, R3D-18 (no cubic, seed 42)
 # Runtime: ~2-3h per run on 4 GPUs (~10h total)

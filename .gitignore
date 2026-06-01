@@ -60,3 +60,5 @@ VNN_ORIGINAL/
 CLAUDE.md
 
 wandb_data/*.parquet
+wandb_data/*.ipynb
+

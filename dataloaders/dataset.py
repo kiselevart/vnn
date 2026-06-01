@@ -571,14 +571,26 @@ class VideoDataset(Dataset):
 
     def _detect_diving48(self):
         return (
-            os.path.exists(os.path.join(self.root_dir, 'diving48_v2_train.json')) and
-            os.path.exists(os.path.join(self.root_dir, 'diving48_v2_test.json'))
+            self._diving48_json_path('train') is not None and
+            self._diving48_json_path('test') is not None
         )
 
+    def _diving48_json_path(self, split):
+        for name in (
+            f'diving48_v2_{split}.json',
+            f'Diving48_V2_{split}.json',
+            f'Diving48_v2_{split}.json',
+        ):
+            path = os.path.join(self.root_dir, name)
+            if os.path.exists(path):
+                return path
+        return None
+
     def _find_diving48_rgb_dir(self, vid_name):
-        """Return the source RGB frame directory for a Diving48 clip, or None."""
+        """Return the source RGB frame directory/video for a Diving48 clip, or None."""
         # Common layouts after extracting the official archives:
         #   <root>/rgb/<vid_name>/      (rgb archive extracted as rgb/)
+        #   <root>/rgb/<vid_name>.mp4   (official RGB clip archive)
         #   <root>/frames/<vid_name>/   (alternative name)
         #   <root>/<vid_name>/          (flat layout)
         for sub in ('rgb', 'frames', ''):
@@ -586,10 +598,14 @@ class VideoDataset(Dataset):
                         os.path.join(self.root_dir, vid_name)
             if os.path.isdir(candidate) and any(f.endswith('.jpg') for f in os.listdir(candidate)):
                 return candidate
+            for ext in ('.mp4', '.avi', '.webm'):
+                video_candidate = candidate + ext
+                if os.path.isfile(video_candidate):
+                    return video_candidate
         return None
 
     def _preprocess_diving48(self):
-        """Preprocess Diving48 using pre-extracted RGB frames.
+        """Preprocess Diving48 using RGB frames or RGB clip videos.
 
         Ignores the dataset's TVL1 optical flow to keep flow statistics
         identical to UCF101/HMDB51 (both use Farneback with 0.05 scale).
@@ -597,16 +613,20 @@ class VideoDataset(Dataset):
 
         Expected directory layout after extracting the official archives:
             data/diving48/
-              diving48_v2_train.json
-              diving48_v2_test.json
-              rgb/<vid_name>/<frame>.jpg   (pre-extracted RGB frames)
+              diving48_v2_train.json or Diving48_V2_train.json
+              diving48_v2_test.json or Diving48_V2_test.json
+              rgb/<vid_name>/<frame>.jpg   (pre-extracted RGB frames), or
+              rgb/<vid_name>.mp4           (official RGB clips)
         """
         import json
         rng = np.random.RandomState(42)
 
-        with open(os.path.join(self.root_dir, 'diving48_v2_train.json')) as f:
+        train_json = self._diving48_json_path('train')
+        test_json = self._diving48_json_path('test')
+
+        with open(train_json) as f:
             train_ann = json.load(f)
-        with open(os.path.join(self.root_dir, 'diving48_v2_test.json')) as f:
+        with open(test_json) as f:
             test_ann = json.load(f)
 
         # Carve 15% of each class for val (no actor groups in diving)
@@ -630,8 +650,8 @@ class VideoDataset(Dataset):
                 label_folder = f"{entry['label']:02d}"
                 vid_name = entry['vid_name']
 
-                src_dir = self._find_diving48_rgb_dir(vid_name)
-                if src_dir is None:
+                src = self._find_diving48_rgb_dir(vid_name)
+                if src is None:
                     missing += 1
                     continue
 
@@ -642,11 +662,14 @@ class VideoDataset(Dataset):
                         self._compute_and_save_flow(dst_dir)
                     continue
 
-                self._resize_frames_to_dir(src_dir, dst_dir)
-                self._compute_and_save_flow(dst_dir)
+                if os.path.isdir(src):
+                    self._resize_frames_to_dir(src, dst_dir)
+                    self._compute_and_save_flow(dst_dir)
+                else:
+                    self._extract_video_to_dir(src, dst_dir)
 
         if missing:
-            print(f'  [WARN] {missing} clips had no RGB frames found — check data/diving48/rgb/<vid_name>/')
+            print(f'  [WARN] {missing} clips had no RGB source found — check data/diving48/rgb/<vid_name>/ or <vid_name>.mp4')
 
     def _detect_ssv2(self):
         return os.path.exists(os.path.join(self.root_dir, 'labels', 'labels.json'))
