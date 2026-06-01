@@ -623,6 +623,7 @@ class VideoDataset(Dataset):
 
         train_json = self._diving48_json_path('train')
         test_json = self._diving48_json_path('test')
+        assert train_json is not None and test_json is not None
 
         with open(train_json) as f:
             train_ann = json.load(f)
@@ -728,8 +729,15 @@ class VideoDataset(Dataset):
         frame_paths = sorted([os.path.join(video_dir, f) for f in os.listdir(video_dir) if f.endswith('.jpg')])
         if len(frame_paths) < 2:
             return
-        imgs = [cv2.imread(p) for p in frame_paths]
-        imgs = [img for img in imgs if img is not None]
+        h, w = self.resize_height, self.resize_width
+        imgs = []
+        for p in frame_paths:
+            img = cv2.imread(p)
+            if img is None:
+                continue
+            if img.shape[0] != h or img.shape[1] != w:
+                img = cv2.resize(img, (w, h))
+            imgs.append(img)
         if len(imgs) < 2:
             return
         video_tensor = torch.from_numpy(np.stack(imgs, axis=0)).permute(3, 0, 1, 2).float()
@@ -770,16 +778,15 @@ class VideoDataset(Dataset):
         if frame_count == 0:
             return np.empty((0, self.resize_height, self.resize_width, 3), np.dtype('float32'))
 
-        # Dynamically sample image properties to prevent shape mismatch on variable test views
-        first_img = cv2.imread(frames[0])
-        h, w = (first_img.shape[0], first_img.shape[1]) if first_img is not None else (self.resize_height, self.resize_width)
-
+        h, w = self.resize_height, self.resize_width
         buffer = np.empty((frame_count, h, w, 3), np.dtype('float32'))
         for i, frame_name in enumerate(frames):
             frame = cv2.imread(frame_name)
             if frame is None:
                 frame = np.zeros((h, w, 3), dtype=np.float32)
             else:
+                if frame.shape[0] != h or frame.shape[1] != w:
+                    frame = cv2.resize(frame, (w, h))
                 frame = np.array(frame).astype(np.float64)
             buffer[i] = frame
         return buffer
