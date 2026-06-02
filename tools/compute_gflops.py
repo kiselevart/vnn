@@ -11,7 +11,7 @@ sys.path.insert(0, ".")
 from network.video_higher_order.vnn_4block import VNNFusionHO, VNNAdditiveFusionHO, VNNSmallAdditiveFusion
 from network.video_higher_order.vnn_legacy import VNNLegacyFusion
 from network.video.established_models import R2Plus1DNet, R3DNet, ResNet50FrameAvg, SmallR3D, SmallR2Plus1D
-from network.video.i3d import I3DTwoStream
+from network.video.i3d import I3DTwoStream, SmallI3DTwoStream
 from network.video_higher_order import (
     lvn_laguerre_fusion,
     lvn_laguerre_full_fusion,
@@ -138,6 +138,9 @@ for label, cls, fn in [
 
 m = I3DTwoStream(num_classes=NUM_CLASSES, clip_len=T)
 rows.append(("Baselines", "I3D Two-Stream (RGB+Flow)", gflops_fusion(m), count_params(m)))
+
+m = SmallI3DTwoStream(num_classes=NUM_CLASSES, clip_len=T)
+rows.append(("Baselines", "SmallI3D Two-Stream (width_mult=0.5)", gflops_fusion(m), count_params(m)))
 
 # ── Small VNN variants ───────────────────────────────────────────────────────
 for label, build in [

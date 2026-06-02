@@ -63,6 +63,8 @@ def parse_args():
     parser.add_argument("--weight_decay", type=float, default=1e-4)
     parser.add_argument("--label_smoothing", type=float, default=0.1)
     parser.add_argument("--dropout",      type=float, default=0.5)
+    parser.add_argument("--width_mult",   type=float, default=1.0,
+                        help="Channel scale factor (0.5 = SmallI3D ~6.2M two-stream).")
     parser.add_argument("--clip_len",     type=int,   default=16,
                         help="Frames per clip.  Paper uses 64; 16 works for short clips.")
 
@@ -263,6 +265,7 @@ class I3DTrainer:
             num_classes=args.num_classes,
             dropout_prob=args.dropout,
             clip_len=args.clip_len,
+            width_mult=args.width_mult,
         ).to(self.device)
 
         self.criterion = nn.CrossEntropyLoss(

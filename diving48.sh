@@ -18,8 +18,8 @@
 
 set -e
 
-GPUS="0,1,2,3"
-PORT=29507
+GPUS="4,5,6,7"
+PORT=29515
 EPOCHS=100
 SEED=42
 GROUP="diving48_ablation"
@@ -34,8 +34,8 @@ run() {
         --dataset diving48 \
         --model "$model" \
         --epochs $EPOCHS \
-        --batch_size 8 \
-        --lr 4e-4 \
+        --batch_size 16 \
+        --lr 8e-4 \
         --seed $SEED \
         --disable_cubic \
         --wandb_group "$GROUP" \
@@ -50,11 +50,18 @@ mkdir -p logs
 run vnn_fusion_ho          "diving48_vnn_fusion_ho_seed42_no_cubic"
 run vnn_additive_fusion_ho "diving48_vnn_additive_fusion_ho_seed42_no_cubic"
 
-# Parameter-matched baseline (~6.2M params, same as LVN/ortho)
-run small_r3d "diving48_small_r3d_seed42"
+run ResNet50FrameAvg "diving48_resnet50_frame_avg"
 
-# Standard baseline (full R3D-18, ~33M params)
-run r3d "diving48_r3d18_seed42"
+# Small models
+run SmallR3D "diving48_r3d_small"
+run SmallR2Plus1D "diving48_r2plus1d_small"
+run 
+
+# Orthogonal model ablation
+# run lvn_laguerre_full_fusion "diving48_lvn_laguerre"
+# run lvn_legendre_fusion  "diving48_lvn_legendre"
+# run lvn_chebyshev_fusion  "diving48_lvn_chebyshev"
+# run lvn_hermite_fusion  "diving48_lvn_hermite"
 
 echo ""
 echo "All Diving48 runs complete."

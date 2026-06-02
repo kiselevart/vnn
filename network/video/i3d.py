@@ -113,57 +113,72 @@ class I3D(nn.Module):
         in_channels: 3 for RGB, 2 for optical flow (u, v)
         dropout_prob: applied before the final linear layer (paper: 0.5)
         clip_len: input temporal length — controls early temporal strides
+        width_mult: uniform channel scale factor (1.0 = full I3D ~12.5M/stream,
+                    0.5 = small I3D ~3.1M/stream → ~6.2M two-stream)
     """
 
     def __init__(self, num_classes: int, in_channels: int = 3,
-                 dropout_prob: float = 0.5, clip_len: int = 16):
+                 dropout_prob: float = 0.5, clip_len: int = 16,
+                 width_mult: float = 1.0):
         super().__init__()
 
-        # For short clips, keep temporal dimension alive through the stem.
+        def _c(n: int) -> int:
+            """Scale n by width_mult, round to nearest multiple of 8, min 8."""
+            return max(8, round(int(n * width_mult) / 8) * 8)
+
+        def _out(spec):
+            """Output channels of an InceptionModule given its branch_spec."""
+            return spec[0] + spec[2] + spec[4] + spec[5]
+
         t_stride = 1 if clip_len <= 32 else 2
 
         # --- Stem ---
-        # Conv3d_1a_7x7
-        self.conv1a = Unit3D(in_channels, 64, kernel_size=(7, 7, 7),
+        c64 = _c(64); c192 = _c(192)
+        self.conv1a = Unit3D(in_channels, c64, kernel_size=(7, 7, 7),
                              stride=(t_stride, 2, 2), padding=(3, 3, 3))
-        # MaxPool3d_2a_3x3 — temporal stride 1 for short clips
         self.pool1 = nn.MaxPool3d(kernel_size=(1, 3, 3), stride=(1, 2, 2),
                                   padding=(0, 1, 1))
-        # Conv3d_2b_1x1
-        self.conv2b = Unit3D(64, 64)
-        # Conv3d_2c_3x3
-        self.conv2c = Unit3D(64, 192, kernel_size=(3, 3, 3), padding=(1, 1, 1))
-        # MaxPool3d_3a_3x3 — temporal stride 1 for short clips
+        self.conv2b = Unit3D(c64, c64)
+        self.conv2c = Unit3D(c64, c192, kernel_size=(3, 3, 3), padding=(1, 1, 1))
         self.pool2 = nn.MaxPool3d(kernel_size=(1, 3, 3), stride=(1, 2, 2),
                                   padding=(0, 1, 1))
 
-        # --- Mixed 3 ---                in   b0   b1r  b1   b2r  b2   b3
-        self.mixed_3b = InceptionModule(192, (64,  96,  128, 16,  32,  32))
-        self.mixed_3c = InceptionModule(256, (128, 128, 192, 32,  96,  64))
+        # --- Mixed 3 ---                         b0       b1r      b1       b2r     b2      b3
+        m3b = (_c(64),  _c(96),  _c(128), _c(16), _c(32),  _c(32))
+        m3c = (_c(128), _c(128), _c(192), _c(32), _c(96),  _c(64))
+        self.mixed_3b = InceptionModule(c192,        m3b)
+        self.mixed_3c = InceptionModule(_out(m3b),   m3c)
         self.pool3 = nn.MaxPool3d(kernel_size=(3, 3, 3), stride=(2, 2, 2),
                                   padding=(1, 1, 1))
 
         # --- Mixed 4 ---
-        self.mixed_4b = InceptionModule(480, (192, 96,  208, 16,  48,  64))
-        self.mixed_4c = InceptionModule(512, (160, 112, 224, 24,  64,  64))
-        self.mixed_4d = InceptionModule(512, (128, 128, 256, 24,  64,  64))
-        self.mixed_4e = InceptionModule(512, (112, 144, 288, 32,  64,  64))
-        self.mixed_4f = InceptionModule(528, (256, 160, 320, 32,  128, 128))
+        m4b = (_c(192), _c(96),  _c(208), _c(16), _c(48),  _c(64))
+        m4c = (_c(160), _c(112), _c(224), _c(24), _c(64),  _c(64))
+        m4d = (_c(128), _c(128), _c(256), _c(24), _c(64),  _c(64))
+        m4e = (_c(112), _c(144), _c(288), _c(32), _c(64),  _c(64))
+        m4f = (_c(256), _c(160), _c(320), _c(32), _c(128), _c(128))
+        self.mixed_4b = InceptionModule(_out(m3c),   m4b)
+        self.mixed_4c = InceptionModule(_out(m4b),   m4c)
+        self.mixed_4d = InceptionModule(_out(m4c),   m4d)
+        self.mixed_4e = InceptionModule(_out(m4d),   m4e)
+        self.mixed_4f = InceptionModule(_out(m4e),   m4f)
         self.pool4 = nn.MaxPool3d(kernel_size=(2, 2, 2), stride=(2, 2, 2))
 
         # --- Mixed 5 ---
-        self.mixed_5b = InceptionModule(832, (256, 160, 320, 32,  128, 128))
-        self.mixed_5c = InceptionModule(832, (384, 192, 384, 48,  128, 128))
-        # Mixed_5c output: 384 + 384 + 128 + 128 = 1024
+        m5b = (_c(256), _c(160), _c(320), _c(32), _c(128), _c(128))
+        m5c = (_c(384), _c(192), _c(384), _c(48), _c(128), _c(128))
+        self.mixed_5b = InceptionModule(_out(m4f),   m5b)
+        self.mixed_5c = InceptionModule(_out(m5b),   m5c)
 
         # --- Head ---
+        c_feat = _out(m5c)
         self.avg_pool = nn.AdaptiveAvgPool3d(1)
         self.dropout = nn.Dropout(p=dropout_prob)
-        self.fc = nn.Linear(1024, num_classes)
+        self.fc = nn.Linear(c_feat, num_classes)
 
-        # Auxiliary classifiers (used during training only, weight 0.3 each)
-        self.aux1 = AuxiliaryHead(512, num_classes)  # after mixed_4b (512ch)
-        self.aux2 = AuxiliaryHead(528, num_classes)  # after mixed_4e (528ch)
+        # Auxiliary classifiers attached after mixed_4b and mixed_4e
+        self.aux1 = AuxiliaryHead(_out(m4b), num_classes)
+        self.aux2 = AuxiliaryHead(_out(m4e), num_classes)
 
         self._init_weights()
 
@@ -237,16 +252,17 @@ class I3DTwoStream(nn.Module):
     Args:
         num_classes: number of output classes
         dropout_prob: per-stream dropout (paper: 0.5)
+        width_mult: channel scale factor passed to both I3D streams
         clip_len: input temporal length
     """
 
     def __init__(self, num_classes: int, dropout_prob: float = 0.5,
-                 clip_len: int = 16):
+                 clip_len: int = 16, width_mult: float = 1.0):
         super().__init__()
         self.rgb_net  = I3D(num_classes, in_channels=3, dropout_prob=dropout_prob,
-                            clip_len=clip_len)
+                            clip_len=clip_len, width_mult=width_mult)
         self.flow_net = I3D(num_classes, in_channels=2, dropout_prob=dropout_prob,
-                            clip_len=clip_len)
+                            clip_len=clip_len, width_mult=width_mult)
 
     def forward(self, x):
         rgb, flow = x
@@ -272,3 +288,14 @@ class I3DTwoStream(nn.Module):
             for p in net.fc.parameters():
                 if p.requires_grad:
                     yield p
+
+
+def SmallI3DTwoStream(num_classes: int, dropout_prob: float = 0.5,
+                     clip_len: int = 16) -> I3DTwoStream:
+    """
+    Width-halved two-stream I3D (~6.2M params total vs ~25.1M for full I3D).
+    All Inception branch channels scaled by 0.5, rounded to nearest 8.
+    Auxiliary classifiers and training interface identical to I3DTwoStream.
+    """
+    return I3DTwoStream(num_classes, dropout_prob=dropout_prob,
+                        clip_len=clip_len, width_mult=0.5)
