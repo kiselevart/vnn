@@ -166,7 +166,8 @@ def get_model(args, device):
             # Fusion ablation: cat(rgb, flow) only — no cross-stream product.
             # Compare against vnn_fusion_ho to isolate the rgb*flow interaction.
             net = VNNAdditiveFusionHO(num_classes=args.num_classes, cubic_mode=args.cubic_mode,
-                                      use_cubic=not args.disable_cubic, clip_len=clip_len)
+                                      use_cubic=not args.disable_cubic, clip_len=clip_len,
+                                      Q=args.Q)
 
         # --- Laguerre VNN ablations ---
         elif args.model == "lvn_rgb_signed":

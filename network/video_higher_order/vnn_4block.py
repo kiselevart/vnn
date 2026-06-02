@@ -232,10 +232,10 @@ class VNNAdditiveFusionHO(nn.Module):
         cubic_mode: 'symmetric' or 'general' cubic factorization.
     """
 
-    def __init__(self, num_classes, cubic_mode='symmetric', use_cubic=True, clip_len=16):
+    def __init__(self, num_classes, cubic_mode='symmetric', use_cubic=True, clip_len=16, Q=4):
         super().__init__()
-        self.model_rgb  = Backbone4Block(num_ch=3, cubic_mode=cubic_mode, use_cubic=use_cubic)
-        self.model_of   = Backbone4Block(num_ch=2, cubic_mode=cubic_mode, use_cubic=use_cubic)
+        self.model_rgb  = Backbone4Block(num_ch=3, cubic_mode=cubic_mode, use_cubic=use_cubic, Q=Q)
+        self.model_of   = Backbone4Block(num_ch=2, cubic_mode=cubic_mode, use_cubic=use_cubic, Q=Q)
         stream_ch = self.model_rgb.out_ch
         self.model_fuse = FusionHead(num_classes=num_classes, num_ch=stream_ch * 2,
                                      cubic_mode=cubic_mode, use_cubic=use_cubic,

@@ -1,13 +1,14 @@
 #!/bin/bash
-# Q sweep rerun — vnn_legacy_fusion across all 3 UCF101 splits, Q=16 down to Q=1.
+# Q sweep rerun — vnn_additive_fusion_ho across all 3 UCF101 splits, Q=16 down to Q=1.
 #
-# Full fresh rerun of both q_sweep.sh (split 1) and q_sweep_splits.sh (splits 2+3).
+# Sweeps backbone quadratic rank Q on the modern additive HO model (AMP-safe, gated,
+# clamped — no --no_amp needed). Fusion head Q is fixed at its default (Q=2); this
+# sweep isolates backbone capacity per Proposition 1.
+#
 # Runs Q values in descending order so high-Q results arrive first.
 # Outer loop: Q (16,8,4,2,1); inner loop: splits (1,2,3).
 #
-# Resolves the s2=s3 duplication artifact in the original Q=8 and Q=16 results.
-#
-# Config identical to prior sweeps: vnn_legacy_fusion, float32 (--no_amp), seed=42, 4-GPU DDP.
+# Config: vnn_additive_fusion_ho, AMP, seed=42, 4-GPU DDP.
 # Estimated runtime: ~7h on 4 GPUs.
 #
 # Usage:
@@ -26,7 +27,7 @@ NPROC=4
 MASTER_PORT=29520
 
 DATASET="ucf101"
-MODEL="vnn_legacy_fusion"
+MODEL="vnn_additive_fusion_ho"
 Q_VALUES=(16 8 4 2 1)
 SPLITS=(1 2 3)
 
@@ -34,10 +35,10 @@ EPOCHS=100
 BATCH_SIZE=8
 LR="4e-4"
 NUM_WORKERS=4
-EXTRA_ARGS="--no_amp"
+EXTRA_ARGS=""
 
 SEED=42
-WANDB_GROUP="q_sweep_rerun"
+WANDB_GROUP="q_sweep_additive"
 
 # =============================================================================
 # Setup

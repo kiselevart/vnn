@@ -29,6 +29,8 @@ MODELS = [
     # --- Diving48 ablation models ---
     ("VNN/fusion",    TWO_STREAM, lambda: VNNFusionHO(num_classes=48, use_cubic=False)),
     ("VNN/additive",  TWO_STREAM, lambda: VNNAdditiveFusionHO(num_classes=48, use_cubic=False)),
+    # --- Q sweep probe (additive backbone, UCF101) ---
+    ("VNN/add Q=16",  TWO_STREAM, lambda: VNNAdditiveFusionHO(num_classes=101, Q=16)),
     ("SmallR3D-48",   ONE_STREAM, lambda: SmallR3D(num_classes=48)),
     ("R3D-18-48",     ONE_STREAM, lambda: R3DNet(num_classes=48)),
     # --- LVN/ortho models (UCF101/HMDB51) ---
