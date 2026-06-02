@@ -1,14 +1,13 @@
 #!/bin/bash
-# Small VNN ablation — parameter-matched (~6.7M) VNN variants vs ortho models.
+# Small VNN ablation — vnn_small_additive_fusion only.
 #
-# Models:
-#   vnn_small_legacy_fusion  — legacy arch (no gates/shortcuts/cubic), Q=1, Q_fusion=1
-#                              10.22 GFLOPs, 6.71M params
+# vnn_small_legacy_fusion is already complete (UCF101 45.3±2.1%, HMDB51 26.1±1.7%).
+#
+# Model:
 #   vnn_small_additive_fusion — modern arch (gates, shortcuts), ch_per_kernel=4, Q=1, no cubic
 #                               6.93 GFLOPs, 6.76M params
 #
-# Both use --no_amp (VNN architectures can have float16 issues without clamping).
-# 3 splits × UCF101 + HMDB51 = 12 runs total. ~2–2.5h/run on 4 GPUs → ~25–30h total.
+# 3 splits × UCF101 + HMDB51 = 6 runs total. ~2–2.5h/run on 4 GPUs → ~12–15h total.
 #
 # Usage:
 #   cd vnn
@@ -21,7 +20,7 @@ GPUS="4,5,6,7"
 NPROC=4
 MASTER_PORT=29508
 
-MODELS=("vnn_small_legacy_fusion" "vnn_small_additive_fusion")
+MODELS=("vnn_small_additive_fusion")
 DATASETS=("ucf101" "hmdb51")
 SPLITS=(1 2 3)
 
@@ -98,7 +97,6 @@ for MODEL in "${MODELS[@]}"; do
                 --wandb_group "$WANDB_GROUP" \
                 --run_name    "$RUN_NAME" \
                 --seed        "$SEED" \
-                --no_amp \
                 || FAILED+=("$RUN_NAME")
         done
         echo ""
