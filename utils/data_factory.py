@@ -54,7 +54,7 @@ class FlowDatasetWrapper(Dataset):
             if not torch.isfinite(rgb).all():
                 rgb = torch.nan_to_num(rgb, nan=0.0, posinf=255.0, neginf=-255.0)
 
-            flow = torch.from_numpy(np.load(os.path.join(ds.fnames[index], "flow.npy")))
+            flow = self._load_flow(ds.fnames[index], ds.resize_height, ds.resize_width)
             flow = flow[:, t_idx:t_idx + ds.clip_len,
                            h_idx:h_idx + ds.crop_size,
                            w_idx:w_idx + ds.crop_size]
@@ -70,7 +70,7 @@ class FlowDatasetWrapper(Dataset):
         # Eval: multi-view — apply _get_view_indices to both RGB and flow
         T, H, W = buffer.shape[0], buffer.shape[1], buffer.shape[2]
         view_indices = ds._get_view_indices(T, H, W)
-        flow_full = torch.from_numpy(np.load(os.path.join(ds.fnames[index], "flow.npy")))
+        flow_full = self._load_flow(ds.fnames[index], ds.resize_height, ds.resize_width)
 
         rgb_views, flow_views = [], []
         for t, h, w in view_indices:
@@ -91,6 +91,19 @@ class FlowDatasetWrapper(Dataset):
         if len(view_indices) == 1:
             return [rgb_views[0], flow_views[0]], label
         return [torch.stack(rgb_views, 0), torch.stack(flow_views, 0)], label
+
+    def _load_flow(self, video_dir, expected_h, expected_w):
+        """Load flow.npy and ensure spatial dims match (guards against wrong-size saved files)."""
+        flow = torch.from_numpy(np.load(os.path.join(video_dir, "flow.npy"))).clone()
+        if flow.shape[2] != expected_h or flow.shape[3] != expected_w:
+            import torch.nn.functional as F
+            flow = F.interpolate(
+                flow.float().unsqueeze(0),
+                size=(expected_h, expected_w),
+                mode='bilinear',
+                align_corners=False,
+            ).squeeze(0)
+        return flow
 
     def _ensure_flow_clip_len(self, flow, clip_len):
         """Pad or trim flow tensor [2, T, H, W] to exactly clip_len frames."""
