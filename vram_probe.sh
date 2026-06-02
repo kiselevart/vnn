@@ -20,6 +20,7 @@ from network.video_higher_order import (
 )
 from network.video_higher_order.vnn_4block import VNNFusionHO, VNNAdditiveFusionHO
 from network.video.established_models import R3DNet, R2Plus1DNet, ResNet50FrameAvg, SmallR3D, SmallR2Plus1D
+from network.video.i3d import I3DTwoStream
 
 TWO_STREAM = True
 ONE_STREAM = False
@@ -42,6 +43,7 @@ MODELS = [
     ("R3D-18",        ONE_STREAM, lambda: R3DNet(num_classes=101)),
     ("R(2+1)D-18",    ONE_STREAM, lambda: R2Plus1DNet(num_classes=101)),
     ("ResNet50-avg",  ONE_STREAM, lambda: ResNet50FrameAvg(num_classes=101)),
+    ("I3D-2stream",   TWO_STREAM, lambda: I3DTwoStream(num_classes=101)),
 ]
 
 device = torch.device("cuda:0")
@@ -62,7 +64,17 @@ for name, two_stream, build in MODELS:
     else:
         out = net(rgb)
 
-    F.cross_entropy(out, torch.zeros(B, dtype=torch.long, device=device)).backward()
+    labels = torch.zeros(B, dtype=torch.long, device=device)
+    if isinstance(out, (tuple, list)) and len(out) == 3 and isinstance(out[2], list):
+        # I3DTwoStream training output: (rgb_main, flow_main, aux_list)
+        rgb_main, flow_main, aux_list = out
+        loss = F.cross_entropy(rgb_main, labels) + F.cross_entropy(flow_main, labels)
+        for aux in aux_list:
+            loss = loss + 0.3 * F.cross_entropy(aux, labels)
+    else:
+        logits = out[0] if isinstance(out, (tuple, list)) else out
+        loss = F.cross_entropy(logits, labels)
+    loss.backward()
 
     peak_mb = torch.cuda.max_memory_reserved(device) / 1024**2
     params  = sum(p.numel() for p in net.parameters()) / 1e6
