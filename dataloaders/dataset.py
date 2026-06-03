@@ -230,7 +230,7 @@ class VideoDataset(Dataset):
             buffer = self.color_jitter(buffer)
             buffer = self.normalize(buffer)
             buffer = self.to_tensor(buffer)
-            return torch.from_numpy(buffer), torch.from_numpy(labels)
+            return torch.from_numpy(buffer).clone(), torch.from_numpy(labels).clone()
 
         T, H, W = buffer.shape[0], buffer.shape[1], buffer.shape[2]
         views = []
@@ -239,10 +239,10 @@ class VideoDataset(Dataset):
             clip = self.ensure_clip_len(clip, self.clip_len)
             clip = self.normalize(clip)
             clip = self.to_tensor(clip)
-            views.append(torch.from_numpy(clip))
+            views.append(torch.from_numpy(clip).clone())
 
         out = torch.stack(views, 0) if len(views) > 1 else views[0]
-        return out, torch.from_numpy(labels)
+        return out, torch.from_numpy(labels).clone()
 
     def _invalidate_filelist_cache(self, split):
         cache_path = os.path.join(self.output_dir, f'filelist_{split}.pkl')
