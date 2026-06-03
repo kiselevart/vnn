@@ -31,8 +31,6 @@ def _video_preprocess_job(args):
         return
 
     frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
-    frame_width  = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
-    frame_height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
     if frame_count < clip_len:
         capture.release()
@@ -50,7 +48,7 @@ def _video_preprocess_job(args):
         if frame is None:
             continue
         if count % freq == 0:
-            if frame_height != resize_height or frame_width != resize_width:
+            if frame.shape[0] != resize_height or frame.shape[1] != resize_width:
                 frame = cv2.resize(frame, (resize_width, resize_height))
             cv2.imwrite(os.path.join(target_dir, '0000{}.jpg'.format(i)), frame)
             i += 1
@@ -67,8 +65,14 @@ def _video_preprocess_job(args):
     frame_paths = sorted(
         os.path.join(target_dir, f) for f in os.listdir(target_dir) if f.endswith('.jpg')
     )
-    imgs = [cv2.imread(p) for p in frame_paths]
-    imgs = [img for img in imgs if img is not None]
+    imgs = []
+    for p in frame_paths:
+        img = cv2.imread(p)
+        if img is None:
+            continue
+        if img.shape[0] != resize_height or img.shape[1] != resize_width:
+            img = cv2.resize(img, (resize_width, resize_height))
+        imgs.append(img)
     if len(imgs) < 2:
         return
     video_tensor = torch.from_numpy(np.stack(imgs, 0)).permute(3, 0, 1, 2).float()
