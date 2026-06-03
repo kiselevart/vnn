@@ -11,6 +11,15 @@ from dataloaders.dataset import VideoDataset
 from dataloaders.timeseries_dataset import TSDataset, load_ucr_dataset
 
 
+def _two_stream_collate(batch):
+    """Collate for FlowDatasetWrapper — avoids PyTorch's shared-memory resize_ on
+    numpy-backed tensors by using torch.stack which always allocates owned memory."""
+    rgb   = torch.stack([item[0][0] for item in batch])
+    flow  = torch.stack([item[0][1] for item in batch])
+    labels = torch.stack([torch.as_tensor(item[1]) for item in batch])
+    return [rgb, flow], labels
+
+
 class FlowDatasetWrapper(Dataset):
     """Two-stream wrapper that pairs RGB clips with pre-cached optical flow.
 
@@ -242,12 +251,14 @@ def get_dataloaders(args):
             val_ds = FlowDatasetWrapper(val_ds)
             test_ds = FlowDatasetWrapper(test_ds)
 
+        collate_fn = _two_stream_collate if "fusion" in args.model else None
         loaders["train"] = DataLoader(
             train_ds,
             batch_size=args.batch_size,
             shuffle=True,
             num_workers=args.num_workers,
             pin_memory=pin_memory,
+            collate_fn=collate_fn,
             **worker_kwargs,
         )
         loaders["val"] = DataLoader(
@@ -256,6 +267,7 @@ def get_dataloaders(args):
             shuffle=False,
             num_workers=args.num_workers,
             pin_memory=pin_memory,
+            collate_fn=collate_fn,
             **worker_kwargs,
         )
         loaders["test"] = DataLoader(
@@ -264,6 +276,7 @@ def get_dataloaders(args):
             shuffle=False,
             num_workers=args.num_workers,
             pin_memory=pin_memory,
+            collate_fn=collate_fn,
             **worker_kwargs,
         )
 
