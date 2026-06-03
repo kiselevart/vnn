@@ -208,6 +208,7 @@ class Trainer:
                 pin_memory=True,
                 persistent_workers=use_workers,
                 prefetch_factor=2 if use_workers else None,
+                collate_fn=loader.collate_fn,
             )
         return new_loaders
 

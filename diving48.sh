@@ -55,7 +55,6 @@ run ResNet50FrameAvg "diving48_resnet50_frame_avg"
 # Small models
 run SmallR3D "diving48_r3d_small"
 run SmallR2Plus1D "diving48_r2plus1d_small"
-run 
 
 # Orthogonal model ablation
 # run lvn_laguerre_full_fusion "diving48_lvn_laguerre"

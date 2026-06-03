@@ -80,6 +80,55 @@ def _video_preprocess_job(args):
     np.save(os.path.join(target_dir, 'flow.npy'), flow.numpy())
 
 
+def _frames_preprocess_job(args):
+    """Module-level worker for pre-extracted frame directories.
+
+    Resizes all source .jpg frames to (resize_height, resize_width), writes them to
+    dst_dir, then computes and saves flow.npy.
+    args: (src_dir, dst_dir, resize_height, resize_width)
+    """
+    src_dir, dst_dir, resize_height, resize_width = args
+
+    if os.path.isdir(dst_dir) and any(f.endswith('.jpg') for f in os.listdir(dst_dir)):
+        if not os.path.exists(os.path.join(dst_dir, 'flow.npy')):
+            frame_paths = sorted(os.path.join(dst_dir, f) for f in os.listdir(dst_dir) if f.endswith('.jpg'))
+            imgs = []
+            for p in frame_paths:
+                img = cv2.imread(p)
+                if img is None:
+                    continue
+                if img.shape[0] != resize_height or img.shape[1] != resize_width:
+                    img = cv2.resize(img, (resize_width, resize_height))
+                imgs.append(img)
+            if len(imgs) >= 2:
+                video_tensor = torch.from_numpy(np.stack(imgs, 0)).permute(3, 0, 1, 2).float()
+                flow = calculate_video_flow(video_tensor)
+                np.save(os.path.join(dst_dir, 'flow.npy'), flow.numpy())
+        return
+
+    frames = sorted(f for f in os.listdir(src_dir) if f.endswith('.jpg'))
+    if not frames:
+        return
+
+    os.makedirs(dst_dir, exist_ok=True)
+    imgs = []
+    for i, fname in enumerate(frames):
+        img = cv2.imread(os.path.join(src_dir, fname))
+        if img is None:
+            continue
+        if img.shape[0] != resize_height or img.shape[1] != resize_width:
+            img = cv2.resize(img, (resize_width, resize_height))
+        cv2.imwrite(os.path.join(dst_dir, f'{i:05d}.jpg'), img)
+        imgs.append(img)
+
+    if len(imgs) < 2:
+        return
+
+    video_tensor = torch.from_numpy(np.stack(imgs, 0)).permute(3, 0, 1, 2).float()
+    flow = calculate_video_flow(video_tensor)
+    np.save(os.path.join(dst_dir, 'flow.npy'), flow.numpy())
+
+
 class VideoDataset(Dataset):
     r"""A Dataset for a folder of videos. Expects the directory structure to be
     directory->[train/val/test]->[class labels]->[videos]. Initializes with a list
@@ -609,18 +658,20 @@ class VideoDataset(Dataset):
         return None
 
     def _preprocess_diving48(self):
-        """Preprocess Diving48 using RGB frames or RGB clip videos.
+        """Preprocess Diving48 v2 following the same parallel approach as UCF101/HMDB51.
 
-        Ignores the dataset's TVL1 optical flow to keep flow statistics
-        identical to UCF101/HMDB51 (both use Farneback with 0.05 scale).
-        Flow is recomputed from the resized RGB frames using calculate_video_flow.
+        Reads the official JSON annotations, carves 15% of each class for validation,
+        then dispatches all clips to a multiprocessing pool.  Video sources (.mp4/.avi)
+        go to _video_preprocess_job (same as UCF101); pre-extracted frame directories
+        go to _frames_preprocess_job.  Both workers extract/resize frames and compute
+        Farneback optical flow, so loading during training is identical to UCF101/HMDB51.
 
-        Expected directory layout after extracting the official archives:
+        Expected layout after extracting the official archives:
             data/diving48/
-              diving48_v2_train.json or Diving48_V2_train.json
-              diving48_v2_test.json or Diving48_V2_test.json
-              rgb/<vid_name>/<frame>.jpg   (pre-extracted RGB frames), or
-              rgb/<vid_name>.mp4           (official RGB clips)
+              Diving48_V2_train.json  (or diving48_v2_train.json)
+              Diving48_V2_test.json   (or diving48_v2_test.json)
+              rgb/<vid_name>.mp4                (official RGB clips), or
+              rgb/<vid_name>/<frame>.jpg        (pre-extracted RGB frames)
         """
         import json
         rng = np.random.RandomState(42)
@@ -634,7 +685,7 @@ class VideoDataset(Dataset):
         with open(test_json) as f:
             test_ann = json.load(f)
 
-        # Carve 15% of each class for val (no actor groups in diving)
+        # Carve 15% of each class for val (Diving48 has no actor groups)
         label_to_entries = defaultdict(list)
         for entry in train_ann:
             label_to_entries[entry['label']].append(entry)
@@ -647,34 +698,46 @@ class VideoDataset(Dataset):
             final_val.extend(entries[:n_val])
             final_train.extend(entries[n_val:])
 
-        missing = 0
+        n_workers = min(os.cpu_count() or 4, 32)
+        total_missing = 0
+
         for split_name, entries in [('train', final_train), ('val', final_val), ('test', list(test_ann))]:
             print(f'  {split_name}: {len(entries)} clips')
-            for entry in tqdm(entries, desc=f'Processing {split_name}'):
-                # Zero-padded integer label → sorted() order matches integer class index
+            video_jobs = []   # (mp4_path,  dst_dir, clip_len, resize_h, resize_w)
+            frames_jobs = []  # (frames_dir, dst_dir, resize_h, resize_w)
+            missing = 0
+
+            for entry in entries:
                 label_folder = f"{entry['label']:02d}"
                 vid_name = entry['vid_name']
-
                 src = self._find_diving48_rgb_dir(vid_name)
                 if src is None:
                     missing += 1
                     continue
-
                 dst_dir = os.path.join(self.output_dir, split_name, label_folder, vid_name)
-                if os.path.exists(dst_dir) and any(f.endswith('.jpg') for f in os.listdir(dst_dir)):
-                    # Already processed; ensure flow exists
-                    if not os.path.exists(os.path.join(dst_dir, 'flow.npy')):
-                        self._compute_and_save_flow(dst_dir)
-                    continue
-
-                if os.path.isdir(src):
-                    self._resize_frames_to_dir(src, dst_dir)
-                    self._compute_and_save_flow(dst_dir)
+                if os.path.isfile(src):
+                    video_jobs.append((src, dst_dir, self.clip_len, self.resize_height, self.resize_width))
                 else:
-                    self._extract_video_to_dir(src, dst_dir)
+                    frames_jobs.append((src, dst_dir, self.resize_height, self.resize_width))
 
-        if missing:
-            print(f'  [WARN] {missing} clips had no RGB source found — check data/diving48/rgb/<vid_name>/ or <vid_name>.mp4')
+            if missing:
+                print(f'  [WARN] {missing} clips not found — check {self.root_dir}/rgb/')
+                total_missing += missing
+
+            if video_jobs:
+                with Pool(n_workers) as pool:
+                    for _ in tqdm(pool.imap_unordered(_video_preprocess_job, video_jobs, chunksize=8),
+                                  total=len(video_jobs), desc=f'Extracting {split_name} (video)'):
+                        pass
+
+            if frames_jobs:
+                with Pool(n_workers) as pool:
+                    for _ in tqdm(pool.imap_unordered(_frames_preprocess_job, frames_jobs, chunksize=8),
+                                  total=len(frames_jobs), desc=f'Extracting {split_name} (frames)'):
+                        pass
+
+        if total_missing:
+            print(f'  [WARN] {total_missing} clips total had no source found')
 
     def _detect_ssv2(self):
         return os.path.exists(os.path.join(self.root_dir, 'labels', 'labels.json'))
