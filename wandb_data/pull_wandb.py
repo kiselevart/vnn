@@ -134,9 +134,22 @@ def fetch_runs(project: str) -> pd.DataFrame:
     runs = api.runs(f"{ENTITY}/{project}")
 
     rows = []
+    n_refetched = 0
     for run in runs:
         cfg = run.config or {}
         summary = run.summary._json_dict if hasattr(run.summary, "_json_dict") else dict(run.summary)
+
+        # Batch API silently returns empty config+summary for recent runs.
+        # Fall back to a per-run fetch when config is missing.
+        if not cfg:
+            try:
+                single = api.run(f"{ENTITY}/{project}/{run.id}")
+                cfg = single.config or {}
+                summary = single.summary._json_dict if hasattr(single.summary, "_json_dict") else dict(single.summary)
+                n_refetched += 1
+            except Exception:
+                pass
+
         name = run.name or ""
 
         row: dict = {
@@ -197,8 +210,9 @@ def fetch_runs(project: str) -> pd.DataFrame:
         rows.append(row)
 
     df = pd.DataFrame(rows)
+    refetch_note = f", {n_refetched} individually refetched" if n_refetched else ""
     print(f"  [{project}] {len(df)} runs fetched  (finished={( df.state=='finished').sum()}, "
-          f"crashed={(df.state=='crashed').sum()}, running={(df.state=='running').sum()})")
+          f"crashed={(df.state=='crashed').sum()}, running={(df.state=='running').sum()}{refetch_note})")
     return df
 
 
